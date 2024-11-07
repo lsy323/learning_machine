@@ -101,7 +101,7 @@ def sharded_device_put(tensor, sharding):
 
 
 def main(
-  batch_size: 1,
+  batch_size: int = 64,
   model_type: str='8B',
   lr: float=0.001,
   tp: int=4,
@@ -172,7 +172,7 @@ def main(
 
 
     train.train_loop(
-      mesh, llama, sharded_weights, None, 
+      mesh, llama, sharded_weights, None,
       freqs_cis, lr, seqlen, policy, batch_size)
 
 
