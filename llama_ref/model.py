@@ -163,7 +163,8 @@ def apply_rotary_emb(
     freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
     xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
-    return xq_out.type_as(xq), xk_out.type_as(xk)
+    #return xq_out.type_as(xq), xk_out.type_as(xk)
+    return xq_out.to(torch.bfloat16), xk_out.to(torch.bfloat16)
 
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:

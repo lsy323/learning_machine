@@ -85,6 +85,7 @@ def make_train_step(model, loss_fn, optax_optimizer, policy):
   def loss(weights, args, label): # inputs are XLATensor
     with env:
       res = torch.func.functional_call(model, weights,  args)
+      res = interop.call_jax(jax.lax.with_sharding_constraint, res, P('fsdp'))
       num_tokens = res.shape[-1]
       flattened = res.reshape(-1, num_tokens)
       label = label.reshape(-1)
@@ -109,6 +110,22 @@ def make_train_step(model, loss_fn, optax_optimizer, policy):
     return loss, weights, opt_state
 
   return step
+
+def _prelower_step(step, weights, opt_state, args, label):
+  print('Start compiling')
+  start = time.perf_counter()
+  lowered = step.lower(
+      weights, opt_state, args, label
+  )
+  print(lowered.as_text())
+  print('program size:', len(lowered.as_text()) / 1e6, 'm chars')
+  step_compiled  = lowered.compile()
+  end = time.perf_counter()
+  print('End compiling', end - start)
+  compile_time = end - start
+  for co in step_compiled.cost_analysis():
+      print('flops counter:', co['flops'])
+  return step_compiled
 
 
 def train_loop(mesh, model, weights, data_loader, 
@@ -156,10 +173,12 @@ def train_loop(mesh, model, weights, data_loader,
 
   data_iter = fake_dataloader(1000, seqlen, batch_size)
 
+
   for i, item in enumerate(data_iter):
     inputs, labels = item
 
     input_seq, pos, freqs_cis, mask = _expand_input(inputs)
+
 
     input_seq = _shard_first_dim(input_seq)
     freqs_cis = freqs_cis
@@ -167,9 +186,15 @@ def train_loop(mesh, model, weights, data_loader,
     labels = _shard_first_dim(labels)
 
     print('INPUT shape', inputs.shape)
+    if i == 0:
+      # NOTE: this is not necessary; but I want to print out 
+      # Stablehlo, and compile times
+      train_step = _prelower_step(
+        train_step, jax_params, opt_state,
+        (input_seq, pos, freqs_cis, mask), labels)
 
     if i == 5:
-      jax.profiler.start_trace('/tmp/llama3')
+      jax.profiler.start_trace(f'/tmp/llama3-{jax.process_index()}/')
     step_start = time.perf_counter()
     loss, jax_params, opt_state = train_step(
         jax_params, opt_state, (input_seq, pos, freqs_cis, mask), labels)

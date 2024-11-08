@@ -11,13 +11,13 @@
 
 CLUSTER_NAME=bodaborg-v6e-256
 DOCKER_URL=gcr.io/tpu-pytorch/llama3:latest
-NUM_SLICES=2
+NUM_SLICES=1
 TPU_TYPE=v6e-256
 ZONE=us-east5-c
 PROJECT_ID=tpu-prod-env-automated
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
-COMMAND="python run.py $@"
+COMMAND="python run.py --batch_size=64 --model_type=70B --seqlen=8192"
 
 xpk workload create \
     --cluster ${CLUSTER_NAME} \

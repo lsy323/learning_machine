@@ -6,9 +6,14 @@ import model
 import model_with_scan
 import train
 import torch_xla2
+from torch_xla2 import interop
 from torch_xla2.ops import mappings
 import custom_mesh
 from jax.sharding import Mesh
+
+from jax.experimental.mesh_utils import create_device_mesh
+from jax.experimental.pallas.ops.tpu import flash_attention
+from jax.experimental.shard_map import shard_map
 
 sharding_map_original = {
   "freqs_cis" : (), #  torch.complex64 (2048, 64)
@@ -64,6 +69,19 @@ def _process_sharding_name(name):
     return ".".join(tokens)
 
 
+def register_attention(fn):
+  from torch_xla2.ops import ops_registry
+  env = torch_xla2.default_env()
+  k = torch.nn.functional.scaled_dot_product_attention
+  env._ops[k] = ops_registry.Operator(
+    k,
+    fn,
+    is_jax_function=False,
+    is_user_defined=True,
+    needs_env=False
+  )
+
+
 
 def create_sharded_weights(model, mesh, sharding_map):
     res = {}
@@ -108,22 +126,23 @@ def main(
   use_scan: bool = True,
   use_custom_mesh: bool = False,
   use_custom_offload: bool = True,
+  internal_override_layers: int = -1,
 ):
 
     print(locals())
     torch.manual_seed(0)
     torch.set_default_dtype(torch.bfloat16)
-    print('Local devices:', jax.local_devices_count())
+    print('Local devices:', jax.local_device_count())
     fsdp_size = len(jax.devices()) // tp
 
     if use_custom_mesh:
-        assert len(jax.devices()) == 512
-        dev_array = custom_mesh.create_custom_64x4_device_mesh(
-          (64, 4), (2, 1), jax.devices()
-        )
-        mesh = Mesh(dev_array, ('fsdp', 'tp'))
+      assert len(jax.devices()) == 512
+      dev_array = custom_mesh.create_custom_64x4_device_mesh(
+        (64, 4), (2, 1), jax.devices()
+      )
     else:
-        mesh = jax.make_mesh((fsdp_size, tp), ('fsdp', 'tp'))
+      dev_array = create_device_mesh((fsdp_size, tp), allow_split_physical_axes=True)
+    mesh = Mesh(dev_array, ('fsdp', 'tp'))
 
     if use_custom_offload:
       policy = jax.checkpoint_policies.save_and_offload_only_these_names(
@@ -144,7 +163,8 @@ def main(
     args = model.ModelArgs(
       **model.transformer_configs[model_type]
     )
-    #args.n_layers = 2
+    if internal_override_layers > 0:
+      args.n_layers = internal_override_layers
 
     with torch.device('meta'):
         if use_scan:
@@ -167,10 +187,43 @@ def main(
     env = torch_xla2.default_env()
     freqs_cis = env.j2t_iso(jax.device_put(freqs_cis, sharding))
 
-    env.config.use_tpu_flash_attention = True
-    env.config.shmap_flash_attention = True
-    env._mesh = mesh
 
+    # NOTE: overriding attention to capture mesh and sharding info
+    def custom_attention(
+        query, key, value, attn_mask=None,
+        dropout_p=0.0, is_causal=False, 
+        scale=None, enable_gqa=False):
+                  #  batch, num of head, seq, dim
+      partition = P('fsdp', 'tp', None, None)
+
+      def wrap_flash_attention(query, key, value):
+        print('query shape is ', query.shape)
+        block_sizes = flash_attention.BlockSizes(
+          block_b=min(2, query.shape[0]),
+          block_q=min(512, query.shape[2]),
+          block_k_major=min(512, key.shape[2]),
+          block_k=min(512, key.shape[2]),
+          block_q_major_dkv=min(512, query.shape[2]),
+          block_k_major_dkv=min(512, key.shape[2]),
+          block_k_dkv=min(512, key.shape[2]),
+          block_q_dkv=min(512, query.shape[2]),
+          block_k_major_dq=min(512, key.shape[2]),
+          block_k_dq=min(256, key.shape[2]),
+          block_q_dq=min(1024, query.shape[2]),
+        )
+        return flash_attention.flash_attention(
+            query, key, value, causal=True, block_sizes=block_sizes)
+
+      wrap_flash_attention = shard_map(
+        wrap_flash_attention,
+        mesh=mesh,
+        in_specs=(partition, partition, partition),
+        out_specs=partition,
+        check_rep=False,
+      )
+      return interop.call_jax(wrap_flash_attention, query, key, value)
+
+    register_attention(custom_attention)
 
     with mesh:
       train.train_loop(
