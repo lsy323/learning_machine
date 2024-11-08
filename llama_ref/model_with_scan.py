@@ -19,9 +19,12 @@ import torch.nn.functional as F
 from torch import nn
 from dataclasses import dataclass
 import jax
+from jax.sharding import PartitionSpec as P
 from torch_xla2 import interop
 
 from jax.ad_checkpoint import checkpoint_name
+
+with_sharding_constraint = interop.torch_view(jax.lax.with_sharding_constraint)
 
 @dataclass
 class ModelArgs:
@@ -226,6 +229,10 @@ class Attention(nn.Module):
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
+
+        xq = with_sharding_constraint(xq, P(None, None, 'tp', None))
+        xk = with_sharding_constraint(xk, P(None, None, 'tp', None))
+        xv = with_sharding_constraint(xv, P(None, None, 'tp', None))
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 

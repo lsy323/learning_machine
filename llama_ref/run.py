@@ -10,7 +10,6 @@ from torch_xla2.ops import mappings
 import custom_mesh
 from jax.sharding import Mesh
 
-
 sharding_map_original = {
   "freqs_cis" : (), #  torch.complex64 (2048, 64)
   "tok_embeddings.weight" : ('tp', 'fsdp'), #  torch.float32 (vocab_size, 4096)
@@ -110,9 +109,11 @@ def main(
   use_custom_mesh: bool = False,
   use_custom_offload: bool = True,
 ):
+
+    print(locals())
     torch.manual_seed(0)
     torch.set_default_dtype(torch.bfloat16)
-    print(jax.local_devices())
+    print('Local devices:', jax.local_devices_count())
     fsdp_size = len(jax.devices()) // tp
 
     if use_custom_mesh:
@@ -171,9 +172,10 @@ def main(
     env._mesh = mesh
 
 
-    train.train_loop(
-      mesh, llama, sharded_weights, None,
-      freqs_cis, lr, seqlen, policy, batch_size)
+    with mesh:
+      train.train_loop(
+        mesh, llama, sharded_weights, None, 
+        freqs_cis, lr, seqlen, policy, batch_size)
 
 
 if __name__ == '__main__':

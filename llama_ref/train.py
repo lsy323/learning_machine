@@ -139,6 +139,8 @@ def train_loop(mesh, model, weights, data_loader,
   def _shard_first_dim(x):
     with jax.default_device(jax.devices('cpu')[0]):
       xj = env.to_xla(x).jax()
+    
+    new_shape = list(xj.shape)
     xj = jax.make_array_from_callback(
       xj.shape, fsdp_sharding, lambda a: xj[a]
     )
@@ -152,9 +154,7 @@ def train_loop(mesh, model, weights, data_loader,
     )
     return xj
 
-  data_iter = group_data(fake_dataloader(1000, seqlen, batch_size), seqlen)
-
-
+  data_iter = fake_dataloader(1000, seqlen, batch_size)
 
   for i, item in enumerate(data_iter):
     inputs, labels = item
