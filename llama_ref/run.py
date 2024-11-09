@@ -135,6 +135,9 @@ def main(
     print('Local devices:', jax.local_device_count())
     fsdp_size = len(jax.devices()) // tp
 
+    env = torch_xla2.default_env()
+    env.config.use_torch_native_for_cpu_tensor = False
+
     if use_custom_mesh:
       assert len(jax.devices()) == 512
       dev_array = custom_mesh.create_custom_64x4_device_mesh(

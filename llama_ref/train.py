@@ -194,7 +194,7 @@ def train_loop(mesh, model, weights, data_loader,
         (input_seq, pos, freqs_cis, mask), labels)
 
     if i == 5:
-      jax.profiler.start_trace(f'/tmp/llama3-{jax.process_index()}/')
+      jax.profiler.start_trace(f'gs://hanq-llama/llama3-{jax.process_index()}/')
     step_start = time.perf_counter()
     loss, jax_params, opt_state = train_step(
         jax_params, opt_state, (input_seq, pos, freqs_cis, mask), labels)
@@ -203,7 +203,7 @@ def train_loop(mesh, model, weights, data_loader,
     if i == 6:
       jax.profiler.stop_trace()
 
-    print(i, 'loss', loss, 'step latency: ', step_end - step_start)
+    print(i, 'loss', loss, loss.dtype, 'step latency: ', step_end - step_start)
     min_loop_time =  min(min_loop_time, step_end - step_start)
     print('======')
     if i >= 6:

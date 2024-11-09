@@ -17,7 +17,7 @@ ZONE=us-east5-c
 PROJECT_ID=tpu-prod-env-automated
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
-COMMAND="python run.py --batch_size=64 --model_type=70B --seqlen=8192"
+COMMAND="LIBTPU_INIT_ARGS= python run.py --batch_size=64 --model_type=70B --seqlen=8192 --use_custom_offload=False"
 
 xpk workload create \
     --cluster ${CLUSTER_NAME} \
