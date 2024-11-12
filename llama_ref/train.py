@@ -7,6 +7,7 @@ from torch_xla2 import interop
 import optax
 import jax
 from jax.sharding import PartitionSpec as P, NamedSharding
+from jax.tree_util import tree_map
 
 SEQLEN = 2048
 
@@ -74,6 +75,7 @@ def sharded_device_put(tensor, sharding):
 
 # NOTE: this line makes jax.remat able to take torch functions
 remat = interop.torch_view(jax.remat)
+mark_sharding = interop.torch_view(jax.lax.with_sharding_constraint)
 
 def make_train_step(model, loss_fn, optax_optimizer, policy):
 
@@ -83,9 +85,10 @@ def make_train_step(model, loss_fn, optax_optimizer, policy):
     remat, 
     policy=policy)
   def loss(weights, args, label): # inputs are XLATensor
-    with env:
+    with env, jax.named_scope('compute_loss'):
+      args = (mark_sharding(args[0], P('fsdp')), *args[1:])
       res = torch.func.functional_call(model, weights,  args)
-      res = interop.call_jax(jax.lax.with_sharding_constraint, res, P('fsdp'))
+      res = mark_sharding(res, P('fsdp'))
       num_tokens = res.shape[-1]
       flattened = res.reshape(-1, num_tokens)
       label = label.reshape(-1)
@@ -95,10 +98,6 @@ def make_train_step(model, loss_fn, optax_optimizer, policy):
   jloss = interop.jax_view(loss)
   grad_fn = jax.value_and_grad(jloss)
 
-  @functools.partial(
-    jax.jit,
-    donate_argnums=(0, 1)
-  )
   def step(weights, opt_state, args, label): #inputs are array
     with jax.named_scope('compute_gradient'):
         loss, gradient = grad_fn(weights, args, label)
@@ -111,10 +110,20 @@ def make_train_step(model, loss_fn, optax_optimizer, policy):
 
   return step
 
-def _prelower_step(step, weights, opt_state, args, label):
+def _prelower_step(step, weights, opt_state, args, label, mesh):
+  wshardings = tree_map(lambda a: a.sharding if isinstance(a, jax.Array) else None, 
+                       weights)
+  oshardings = tree_map(lambda a: a.sharding if isinstance(a, jax.Array) else None, 
+                       opt_state)
+
   print('Start compiling')
   start = time.perf_counter()
-  lowered = step.lower(
+  lowered = jax.jit(
+    step,
+    donate_argnums=(0, 1),
+    #in_shardings=shardings,
+    out_shardings=(NamedSharding(mesh, P()), wshardings, oshardings),
+  ).lower(
       weights, opt_state, args, label
   )
   print(lowered.as_text())
@@ -127,6 +136,8 @@ def _prelower_step(step, weights, opt_state, args, label):
       print('flops counter:', co['flops'])
   return step_compiled
 
+from optax import ScaleByAdamState
+
 
 def train_loop(mesh, model, weights, data_loader, 
     input_freqs_cis, lr, seqlen, policy, batch_size):
@@ -138,6 +149,13 @@ def train_loop(mesh, model, weights, data_loader,
   jax_params = env.t2j_iso(weights)
   jax_optimizer = optax.adamw(lr)
   opt_state = jax_optimizer.init(jax_params)
+  opt_state = (ScaleByAdamState(
+    # replicate count
+    jax.device_put(opt_state[0].count, NamedSharding(mesh, P())),
+    opt_state[0].mu,
+    opt_state[0].nu
+  ), *opt_state[1:])
+
   train_step = make_train_step(model, 
     loss_fn=torch.nn.CrossEntropyLoss(), 
     optax_optimizer=jax_optimizer,
@@ -175,39 +193,40 @@ def train_loop(mesh, model, weights, data_loader,
 
 
   for i, item in enumerate(data_iter):
-    inputs, labels = item
+    with jax.profiler.StepTraceAnnotation('train', step_num=i):
+      inputs, labels = item
 
-    input_seq, pos, freqs_cis, mask = _expand_input(inputs)
+      input_seq, pos, freqs_cis, mask = _expand_input(inputs)
 
 
-    input_seq = _shard_first_dim(input_seq)
-    freqs_cis = freqs_cis
-    mask = _replicate(mask)
-    labels = _shard_first_dim(labels)
+      input_seq = _shard_first_dim(input_seq)
+      freqs_cis = freqs_cis
+      mask = _replicate(mask)
+      labels = _shard_first_dim(labels)
 
-    print('INPUT shape', inputs.shape)
-    if i == 0:
-      # NOTE: this is not necessary; but I want to print out 
-      # Stablehlo, and compile times
-      train_step = _prelower_step(
-        train_step, jax_params, opt_state,
-        (input_seq, pos, freqs_cis, mask), labels)
+      print('INPUT shape', inputs.shape)
+      if i == 0:
+        # NOTE: this is not necessary; but I want to print out 
+        # Stablehlo, and compile times
+        train_step = _prelower_step(
+          train_step, jax_params, opt_state,
+          (input_seq, pos, freqs_cis, mask), labels, mesh)
 
-    if i == 5:
-      jax.profiler.start_trace(f'gs://hanq-llama/llama3-{jax.process_index()}/')
-    step_start = time.perf_counter()
-    loss, jax_params, opt_state = train_step(
-        jax_params, opt_state, (input_seq, pos, freqs_cis, mask), labels)
-    jax.block_until_ready((loss, jax_params))
-    step_end = time.perf_counter()
-    if i == 6:
-      jax.profiler.stop_trace()
+      if i == 5:
+        jax.profiler.start_trace(f'gs://hanq-llama/llama3-{jax.process_index()}/')
+      step_start = time.perf_counter()
+      loss, jax_params, opt_state = train_step(
+          jax_params, opt_state, (input_seq, pos, freqs_cis, mask), labels)
+      jax.block_until_ready((loss, jax_params))
+      step_end = time.perf_counter()
+      if i == 6:
+        jax.profiler.stop_trace()
 
-    print(i, 'loss', loss, loss.dtype, 'step latency: ', step_end - step_start)
-    min_loop_time =  min(min_loop_time, step_end - step_start)
-    print('======')
-    if i >= 6:
-        break
+      print(i, 'loss', loss, loss.dtype, 'step latency: ', step_end - step_start)
+      min_loop_time =  min(min_loop_time, step_end - step_start)
+      print('======')
+      if i >= 6:
+          break
   
   return min_loop_time
 
