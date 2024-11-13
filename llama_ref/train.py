@@ -8,6 +8,7 @@ import optax
 import jax
 from jax.sharding import PartitionSpec as P, NamedSharding
 from jax.tree_util import tree_map
+from jax.experimental import shard_map
 
 SEQLEN = 2048
 
@@ -77,7 +78,7 @@ def sharded_device_put(tensor, sharding):
 remat = interop.torch_view(jax.remat)
 mark_sharding = interop.torch_view(jax.lax.with_sharding_constraint)
 
-def make_train_step(model, loss_fn, optax_optimizer, policy):
+def make_train_step(model_forward, loss_fn, optax_optimizer, policy):
 
   env = torch_xla2.default_env()
 
@@ -87,7 +88,7 @@ def make_train_step(model, loss_fn, optax_optimizer, policy):
   def loss(weights, args, label): # inputs are XLATensor
     with env, jax.named_scope('compute_loss'):
       args = (mark_sharding(args[0], P('fsdp')), *args[1:])
-      res = torch.func.functional_call(model, weights,  args)
+      res = model_forward(weights, args)
       res = mark_sharding(res, P('fsdp'))
       num_tokens = res.shape[-1]
       flattened = res.reshape(-1, num_tokens)
@@ -126,7 +127,7 @@ def _prelower_step(step, weights, opt_state, args, label, mesh):
   ).lower(
       weights, opt_state, args, label
   )
-  print(lowered.as_text())
+  # print(lowered.as_text())
   print('program size:', len(lowered.as_text()) / 1e6, 'm chars')
   step_compiled  = lowered.compile()
   end = time.perf_counter()
@@ -140,7 +141,7 @@ from optax import ScaleByAdamState
 
 
 def train_loop(mesh, model, weights, data_loader, 
-    input_freqs_cis, lr, seqlen, policy, batch_size):
+    input_freqs_cis, lr, seqlen, policy, batch_size, use_shmap):
   print('start training')
   min_loop_time = 10000
 
@@ -156,7 +157,40 @@ def train_loop(mesh, model, weights, data_loader,
     opt_state[0].nu
   ), *opt_state[1:])
 
-  train_step = make_train_step(model, 
+  wspecs = tree_map(lambda a: a.sharding.spec, jax_params)
+  waxis = tree_map(lambda a: a.index('fsdp'), wspecs)
+
+
+  model_forward_orig = functools.partial(torch.func.functional_call, model)
+
+  @functools.partial(
+    shard_map.shard_map,
+    mesh=mesh,
+    in_specs=(
+      wspecs,
+      (P('fsdp'), P(), P(), P())
+    ),
+    out_specs=(P('fsdp')),
+    check_rep=False
+  )
+  def model_forward_shmap(weight, args):
+    def gather_weights(w, spec):
+      try:
+        index = spec.index('fsdp')
+        w = jax.lax.all_gather(w, axis_name='fsdp', tiled=True)
+        return w
+      except ValueError:
+        return w
+    weight = tree_map(gather_weights, weight, wspecs)
+    res = interop.call_torch(model_forward_orig, weight, args)
+    return res
+
+  if use_shmap:
+    model_forward = interop.torch_view(model_forward_shmap)
+  else:
+    model_forward = model_forward_orig
+
+  train_step = make_train_step(model_forward, 
     loss_fn=torch.nn.CrossEntropyLoss(), 
     optax_optimizer=jax_optimizer,
     policy=policy,

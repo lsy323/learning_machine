@@ -33,6 +33,7 @@ class ModelArgs:
 
     max_batch_size: int = 32
     max_seq_len: int = 8192
+    tp_size: int = 1
 
     # vision model params
     vision_chunk_size: int = -1  # image resolution for image models

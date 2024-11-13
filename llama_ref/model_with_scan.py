@@ -230,9 +230,9 @@ class Attention(nn.Module):
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
 
-        xq = with_sharding_constraint(xq, P(None, None, 'tp', None))
-        xk = with_sharding_constraint(xk, P(None, None, 'tp', None))
-        xv = with_sharding_constraint(xv, P(None, None, 'tp', None))
+        xq = with_sharding_constraint(xq, P('fsdp', None, 'tp', None))
+        xk = with_sharding_constraint(xk, P('fsdp', None, 'tp', None))
+        xv = with_sharding_constraint(xv, P('fsdp', None, 'tp', None))
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
@@ -263,6 +263,7 @@ class Attention(nn.Module):
 
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
         out = self.wo(output)
+        out = with_sharding_constraint(out, P('fsdp', None, None))
         out = interop.call_jax(checkpoint_name, out, 'out_proj')
         return out
 

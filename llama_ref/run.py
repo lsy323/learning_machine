@@ -4,6 +4,7 @@ from jax.sharding import PartitionSpec as P, NamedSharding
 import torch
 import model
 import model_with_scan
+import model_with_collectives
 import train
 import torch_xla2
 from torch_xla2 import interop
@@ -124,7 +125,7 @@ def main(
   lr: float=0.001,
   tp: int=4,
   seqlen: int = 2048,
-  use_scan: bool = True,
+  model_impl: str = 'scan',
   use_custom_mesh: bool = False,
   use_custom_offload: bool = True,
   internal_override_layers: int = -1,
@@ -144,6 +145,7 @@ def main(
       dev_array = custom_mesh.create_custom_64x4_device_mesh(
         (64, 4), (2, 1), jax.devices()
       )
+      tp = 4
     else:
       dev_array = create_device_mesh((fsdp_size, tp), allow_split_physical_axes=True)
     mesh = Mesh(dev_array, ('fsdp', 'tp'))
@@ -171,12 +173,18 @@ def main(
       args.n_layers = internal_override_layers
 
     with torch.device('meta'):
-        if use_scan:
+        if model_impl == 'scan':
             sharding_map = sharding_map_scan
             llama = model_with_scan.Transformer(args)
-        else:
+        elif model_impl == 'scan_manual':
+            args.tp_size = tp
+            sharding_map = sharding_map_scan
+            llama = model_with_collectives.Transformer(args)
+        elif model_impl == 'orig':
             sharding_map = sharding_map_original
             llama = model.Transformer(args)
+        else:
+          raise AssertionError('unknown impl: ' + model_impl)
 
     sharded_weights = create_sharded_weights(llama, mesh, sharding_map)
     with torch.device('cpu'):
@@ -218,13 +226,14 @@ def main(
         return flash_attention.flash_attention(
             query, key, value, causal=True, block_sizes=block_sizes)
 
-      wrap_flash_attention = shard_map(
-        wrap_flash_attention,
-        mesh=mesh,
-        in_specs=(partition, partition, partition),
-        out_specs=partition,
-        check_rep=False,
-      )
+      if model_impl != 'scan_manual':
+        wrap_flash_attention = shard_map(
+          wrap_flash_attention,
+          mesh=mesh,
+          in_specs=(partition, partition, partition),
+          out_specs=partition,
+          check_rep=False,
+        )
       return interop.call_jax(wrap_flash_attention, query, key, value)
 
     register_attention(custom_attention)
@@ -232,7 +241,7 @@ def main(
     with mesh:
       train.train_loop(
         mesh, llama, sharded_weights, None, 
-        freqs_cis, lr, seqlen, policy, batch_size)
+        freqs_cis, lr, seqlen, policy, batch_size, use_shmap=(model_impl == 'scan_manual'))
 
 
 if __name__ == '__main__':
