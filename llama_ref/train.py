@@ -177,7 +177,7 @@ def train_loop(mesh, model, weights, data_loader,
     def gather_weights(w, spec):
       try:
         index = spec.index('fsdp')
-        w = jax.lax.all_gather(w, axis_name='fsdp', tiled=True)
+        w = jax.lax.all_gather(w, axis_name='fsdp', tiled=True, axis=index)
         return w
       except ValueError:
         return w
