@@ -148,14 +148,15 @@ def train_loop(mesh, model, weights, data_loader,
   env = torch_xla2.default_env()
 
   jax_params = env.t2j_iso(weights)
-  jax_optimizer = optax.adamw(lr)
+  #jax_optimizer = optax.adamw(lr)
+  jax_optimizer = optax.sgd(lr)
   opt_state = jax_optimizer.init(jax_params)
-  opt_state = (ScaleByAdamState(
-    # replicate count
-    jax.device_put(opt_state[0].count, NamedSharding(mesh, P())),
-    opt_state[0].mu,
-    opt_state[0].nu
-  ), *opt_state[1:])
+  # opt_state = (ScaleByAdamState(
+  #   # replicate count
+  #   jax.device_put(opt_state[0].count, NamedSharding(mesh, P())),
+  #   opt_state[0].mu,
+  #   opt_state[0].nu
+  # ), *opt_state[1:])
 
   wspecs = tree_map(lambda a: a.sharding.spec, jax_params)
   waxis = tree_map(lambda a: a.index('fsdp'), wspecs)
@@ -181,8 +182,14 @@ def train_loop(mesh, model, weights, data_loader,
         return w
       except ValueError:
         return w
-    weight = tree_map(gather_weights, weight, wspecs)
-    res = interop.call_torch(model_forward_orig, weight, args)
+    new_weights = {}
+    for k, v in weight.items():
+      if not k.startswith('layers'):
+        new_weights[k] = gather_weights(v, wspecs[k])
+      else:
+        new_weights[k] = v
+      
+    res = interop.call_torch(model_forward_orig, new_weights, args)
     return res
 
   if use_shmap:
