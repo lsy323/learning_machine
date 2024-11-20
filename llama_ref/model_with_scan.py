@@ -234,7 +234,7 @@ class Attention(nn.Module):
         xk = with_sharding_constraint(xk, P('fsdp', None, 'tp', None))
         xv = with_sharding_constraint(xv, P('fsdp', None, 'tp', None))
 
-        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+        #xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
         xq = interop.call_jax(checkpoint_name, xq, 'query_proj')
         xk = interop.call_jax(checkpoint_name, xk, 'key_proj')
@@ -349,6 +349,7 @@ class ScanLayer(nn.Module):
             {self._param_name_new(k): nn.Parameter(v) for k, v in stacked_weights.items()}
         )
 
+
         @functools.partial(
             interop.jax_jit,
             kwargs_for_jax_jit={'donate_argnums': (0,)}
@@ -360,7 +361,10 @@ class ScanLayer(nn.Module):
             # next layer's input; and residual to be added to list
             return (newh, *rest), torch.ones(1)
 
-        self._eval_one_layer = eval_one_layer
+        self._eval_one_layer = interop.call_jax(
+            jax.checkpoint, 
+            eval_one_layer,
+            policy=jax.checkpoint_policies.dots_with_no_batch_dims_saveable)
 
     def _stack_layer_weights(self, orig_state_dict, num_layers):
         # Create weights such that, for every [n, m] weights

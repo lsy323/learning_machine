@@ -164,7 +164,7 @@ def main(
           offload_dst="pinned_host",
       )
     else:
-      policy=jax.checkpoint_policies.checkpoint_dots_with_no_batch_dims
+      policy=jax.checkpoint_policies.nothing_saveable
 
     args = model.ModelArgs(
       **model.transformer_configs[model_type]
@@ -242,6 +242,79 @@ def main(
       train.train_loop(
         mesh, llama, sharded_weights, None, 
         freqs_cis, lr, seqlen, policy, batch_size, use_shmap=(model_impl == 'scan_manual'))
+
+
+def main2(
+  batch_size: int = 64,
+  model_type: str='8B',
+  lr: float=0.001,
+  tp: int=4,
+  seqlen: int = 2048,
+  model_impl: str = 'scan',
+  use_custom_mesh: bool = False,
+  use_custom_offload: bool = True,
+  internal_override_layers: int = -1,
+):
+    print(locals())
+    torch.manual_seed(0)
+    torch.set_default_dtype(torch.bfloat16)
+    print('Local devices:', jax.local_device_count())
+    fsdp_size = len(jax.devices()) // tp
+
+    env = torch_xla2.default_env()
+    env.config.use_torch_native_for_cpu_tensor = False
+
+    if use_custom_mesh:
+      assert len(jax.devices()) == 512
+      dev_array = custom_mesh.create_custom_64x4_device_mesh(
+        (64, 4), (2, 1), jax.devices()
+      )
+      tp = 4
+    else:
+      dev_array = create_device_mesh((fsdp_size, tp), allow_split_physical_axes=True)
+    mesh = Mesh(dev_array, ('fsdp', 'tp'))
+
+    if use_custom_offload:
+      policy = jax.checkpoint_policies.save_and_offload_only_these_names(
+          names_which_can_be_saved=[],
+          names_which_can_be_offloaded=[
+              "decoder_layer_input",
+              "query_proj",
+              "key_proj",
+              "value_proj",
+              "out_proj",
+          ],
+          offload_src="device",
+          offload_dst="pinned_host",
+      )
+    else:
+      policy=jax.checkpoint_policies.nothing_saveable
+
+    args = model.ModelArgs(
+      **model.transformer_configs[model_type]
+    )
+
+    with env:
+      ffn = model.FeedForward(4096, 4096, 256, 1.3)
+      ffn.to('jax')
+    def ffnc(weights, args):
+      weights, args = env.j2t_iso((weights, args))
+      res = torch.func.functional_call(
+        ffn,
+        weights, 
+        args
+      )
+      return env.t2j_iso(res)
+      
+    env.config.debug_print_each_op = True
+    print('====')
+    print(jax.jit(ffnc).lower(
+      env.t2j_iso(ffn.state_dict()),
+      (jax.ShapeDtypeStruct((3, 100, 4096), jnp.bfloat16.dtype), )
+    ).as_text())
+
+    breakpoint()
+
 
 
 if __name__ == '__main__':
