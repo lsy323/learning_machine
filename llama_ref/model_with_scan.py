@@ -363,8 +363,7 @@ class ScanLayer(nn.Module):
 
         self._eval_one_layer = interop.call_jax(
             jax.checkpoint, 
-            eval_one_layer,
-            policy=jax.checkpoint_policies.dots_with_no_batch_dims_saveable)
+            eval_one_layer)
 
     def _stack_layer_weights(self, orig_state_dict, num_layers):
         # Create weights such that, for every [n, m] weights

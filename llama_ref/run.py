@@ -141,11 +141,16 @@ def main(
     env.config.use_torch_native_for_cpu_tensor = False
 
     if use_custom_mesh:
-      assert len(jax.devices()) == 512
-      dev_array = custom_mesh.create_custom_64x4_device_mesh(
-        (64, 4), (2, 1), jax.devices()
-      )
       tp = 4
+      if len(jax.devices()) == 512:
+        dev_array = custom_mesh.create_custom_64x4_device_mesh(
+          (64, 4), (2, 1), jax.devices()
+        )
+      else:
+        assert len(jax.devices()) == 256
+        dev_array = custom_mesh.create_custom_64x4_device_mesh(
+          (64, 4), (1, 1), jax.devices()
+        )
     else:
       dev_array = create_device_mesh((fsdp_size, tp), allow_split_physical_axes=True)
     mesh = Mesh(dev_array, ('fsdp', 'tp'))
