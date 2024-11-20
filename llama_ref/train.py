@@ -83,7 +83,7 @@ def make_train_step(model_forward, loss_fn, optax_optimizer, policy):
   env = torch_xla2.default_env()
 
   @functools.partial(
-    remat, 
+    remat,
     policy=policy)
   def loss(weights, args, label): # inputs are XLATensor
     with env, jax.named_scope('compute_loss'):
@@ -112,9 +112,9 @@ def make_train_step(model_forward, loss_fn, optax_optimizer, policy):
   return step
 
 def _prelower_step(step, weights, opt_state, args, label, mesh):
-  wshardings = tree_map(lambda a: a.sharding if isinstance(a, jax.Array) else None, 
+  wshardings = tree_map(lambda a: a.sharding if isinstance(a, jax.Array) else None,
                        weights)
-  oshardings = tree_map(lambda a: a.sharding if isinstance(a, jax.Array) else None, 
+  oshardings = tree_map(lambda a: a.sharding if isinstance(a, jax.Array) else None,
                        opt_state)
 
   print('Start compiling')
@@ -141,8 +141,8 @@ def _prelower_step(step, weights, opt_state, args, label, mesh):
 from optax import ScaleByAdamState
 
 
-def train_loop(mesh, model, weights, data_loader, 
-    input_freqs_cis, lr, seqlen, policy, batch_size, use_shmap):
+def train_loop(mesh, model, weights, data_loader,
+    input_freqs_cis, lr, seqlen, policy, batch_size, use_shmap, profile_dir: str):
   print('start training')
   min_loop_time = 10000
 
@@ -189,7 +189,7 @@ def train_loop(mesh, model, weights, data_loader,
         new_weights[k] = gather_weights(v, wspecs[k])
       else:
         new_weights[k] = v
-      
+
     res = interop.call_torch(model_forward_orig, new_weights, args)
     return res
 
@@ -198,8 +198,8 @@ def train_loop(mesh, model, weights, data_loader,
   else:
     model_forward = model_forward_orig
 
-  train_step = make_train_step(model_forward, 
-    loss_fn=torch.nn.CrossEntropyLoss(), 
+  train_step = make_train_step(model_forward,
+    loss_fn=torch.nn.CrossEntropyLoss(),
     optax_optimizer=jax_optimizer,
     policy=policy,
   )
@@ -216,7 +216,7 @@ def train_loop(mesh, model, weights, data_loader,
   def _shard_first_dim(x):
     with jax.default_device(jax.devices('cpu')[0]):
       xj = env.to_xla(x).jax()
-    
+
     new_shape = list(xj.shape)
     xj = jax.make_array_from_callback(
       xj.shape, fsdp_sharding, lambda a: xj[a]
@@ -248,14 +248,14 @@ def train_loop(mesh, model, weights, data_loader,
 
       print('INPUT shape', inputs.shape)
       if i == 0:
-        # NOTE: this is not necessary; but I want to print out 
+        # NOTE: this is not necessary; but I want to print out
         # Stablehlo, and compile times
         train_step = _prelower_step(
           train_step, jax_params, opt_state,
           (input_seq, pos, freqs_cis, mask), labels, mesh)
 
       if i == 5:
-        jax.profiler.start_trace(f'gs://hanq-llama/llama3-{jax.process_index()}/')
+        jax.profiler.start_trace(profile_dir)
       step_start = time.perf_counter()
       loss, jax_params, opt_state = train_step(
           jax_params, opt_state, (input_seq, pos, freqs_cis, mask), labels)
@@ -269,7 +269,7 @@ def train_loop(mesh, model, weights, data_loader,
       print('======')
       if i >= 6:
           break
-  
+
   return min_loop_time
 
 

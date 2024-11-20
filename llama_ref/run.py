@@ -129,6 +129,7 @@ def main(
   use_custom_mesh: bool = False,
   use_custom_offload: bool = True,
   internal_override_layers: int = -1,
+  profile_dir: str = 'profile/',
 ):
 
     print(locals())
@@ -208,7 +209,7 @@ def main(
     # NOTE: overriding attention to capture mesh and sharding info
     def custom_attention(
         query, key, value, attn_mask=None,
-        dropout_p=0.0, is_causal=False, 
+        dropout_p=0.0, is_causal=False,
         scale=None, enable_gqa=False):
                   #  batch, num of head, seq, dim
       partition = P('fsdp', 'tp', None, None)
@@ -245,8 +246,9 @@ def main(
 
     with mesh:
       train.train_loop(
-        mesh, llama, sharded_weights, None, 
-        freqs_cis, lr, seqlen, policy, batch_size, use_shmap=(model_impl == 'scan_manual'))
+        mesh, llama, sharded_weights, None,
+        freqs_cis, lr, seqlen, policy, batch_size, use_shmap=(model_impl == 'scan_manual'),
+        profile_dir=profile_dir)
 
 
 def main2(
@@ -259,6 +261,7 @@ def main2(
   use_custom_mesh: bool = False,
   use_custom_offload: bool = True,
   internal_override_layers: int = -1,
+  profile_dir: str = 'profile/',
 ):
     print(locals())
     torch.manual_seed(0)
@@ -306,11 +309,11 @@ def main2(
       weights, args = env.j2t_iso((weights, args))
       res = torch.func.functional_call(
         ffn,
-        weights, 
+        weights,
         args
       )
       return env.t2j_iso(res)
-      
+
     env.config.debug_print_each_op = True
     print('====')
     print(jax.jit(ffnc).lower(
