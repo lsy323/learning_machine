@@ -364,23 +364,6 @@ class ScanLayer(nn.Module):
             {self._param_name_new(k): nn.Parameter(v) for k, v in stacked_weights.items()}
         )
 
-        @functools.partial(
-            interop.jax_jit,
-            kwargs_for_jax_jit={'donate_argnums': (0,)}
-        )
-        def eval_one_layer(args, weight):
-            # unpack args
-            h, *rest = args
-            new_weights = {}
-            for k, val in weight.items():
-                new_weights[k] = all_gather(val, axis=_fsdp_axis(k), axis_name='fsdp', tiled=True)
-            newh = torch.func.functional_call(self.m, new_weights, args)
-            # next layer's input; and residual to be added to list
-            return (newh, *rest), torch.ones(1)
-
-        self._eval_one_layer = interop.call_jax(
-            jax.checkpoint, 
-            eval_one_layer)
         #self._eval_one_layer = eval_one_layer
 
     def _stack_layer_weights(self, orig_state_dict, num_layers):
@@ -404,12 +387,29 @@ class ScanLayer(nn.Module):
         assert not kwargs
         weights = {k: self.params[self._param_name_new(k)] for k in self.layer_weights_keys}
         scan = interop.torch_view(jax.lax.scan)
-        h, _ = scan(
-            self._eval_one_layer,
-            args,
-            weights,
+        rest = args[1:]
+
+        def eval_one_layer(h, weight):
+            # unpack args
+            new_weights = {}
+            for k, val in weight.items():
+                new_weights[k] = all_gather(val, axis=_fsdp_axis(k), axis_name='fsdp', tiled=True)
+            newh = torch.func.functional_call(self.m, new_weights, (h, *rest))
+            # next layer's input; and residual to be added to list
+            return newh, torch.ones(1)
+
+
+        _eval_one_layer = interop.call_jax(
+            jax.checkpoint, 
+            eval_one_layer,
         )
-        return h[0]
+        h, _ = scan(
+            _eval_one_layer,
+            args[0],
+            weights,
+            unroll=4
+        )
+        return h
 
 
 

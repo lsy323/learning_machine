@@ -149,9 +149,7 @@ def main(
         )
       else:
         assert len(jax.devices()) == 256
-        dev_array = custom_mesh.create_custom_64x4_device_mesh(
-          (64, 4), (1, 1), jax.devices()
-        )
+        dev_array = np.array(jax.devices()).reshape(8, 2, 8, 2).transpose(0, 2, 1, 3).reshape(64, 4)
     else:
       dev_array = create_device_mesh((fsdp_size, tp), allow_split_physical_axes=True)
     mesh = Mesh(dev_array, ('fsdp', 'tp'))
