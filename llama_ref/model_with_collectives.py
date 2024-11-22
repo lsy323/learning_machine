@@ -326,7 +326,7 @@ class TransformerBlock(nn.Module):
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
     ):
-        x = interop.call_jax(checkpoint_name, x, 'decode_layer_input')
+        x = interop.call_jax(checkpoint_name, x, 'decoder_layer_input')
         h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis, mask)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -351,10 +351,11 @@ class ScanLayer(nn.Module):
     # requirement: submodule's return value must be the same type/shape as input
     
 
-    def __init__(self, submodule: nn.Module, num_layers: int):
+    def __init__(self, submodule: nn.Module, num_layers: int, unroll_layers: int):
         super().__init__()
         self.m = submodule
         self.num_layers = num_layers
+        self.unroll_layers = unroll_layers
         one_block_statedict = self.m.state_dict()
         self.layer_weights_keys = list(one_block_statedict.keys())
         stacked_weights = self._stack_layer_weights(one_block_statedict, num_layers)
@@ -391,23 +392,47 @@ class ScanLayer(nn.Module):
 
         def eval_one_layer(h, weight):
             # unpack args
-            new_weights = {}
-            for k, val in weight.items():
-                new_weights[k] = all_gather(val, axis=_fsdp_axis(k), axis_name='fsdp', tiled=True)
-            newh = torch.func.functional_call(self.m, new_weights, (h, *rest))
+            def gather_and_call(h, new_weights):
+                gathered = {}
+                for k, val in new_weights.items():
+                    gathered[k] = all_gather(val, axis=_fsdp_axis(k), axis_name='fsdp', tiled=True)
+                newh = torch.func.functional_call(self.m, gathered, (h, *rest))
+                return newh
+            
+            for i in range(self.unroll_layers):
+                new_weights = {}
+                for k, v in weight.items():
+                    new_weights[k] = v[i]
+                h = gather_and_call(h, new_weights)
             # next layer's input; and residual to be added to list
-            return newh, torch.ones(1)
+            return h, torch.ones(1)
 
 
+        policy = jax.checkpoint_policies.save_and_offload_only_these_names(
+            names_which_can_be_saved=[],
+            names_which_can_be_offloaded=[
+                "decoder_layer_input",
+                "query_proj",
+                "key_proj",
+                "value_proj",
+                "out_proj",
+            ],
+            offload_src="device",
+            offload_dst="pinned_host",
+        )
         _eval_one_layer = interop.call_jax(
             jax.checkpoint, 
             eval_one_layer,
+            policy=policy,
         )
+        reshaped_weights = {}
+        for k, v in weights.items():
+            shape = v.shape
+            reshaped_weights[k] = v.reshape(shape[0] // self.unroll_layers, self.unroll_layers, *shape[1:])
         h, _ = scan(
             _eval_one_layer,
             args[0],
-            weights,
-            unroll=4
+            reshaped_weights,
         )
         return h
 
@@ -416,7 +441,7 @@ class ScanLayer(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs):
+    def __init__(self, params: ModelArgs, unroll_layers):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -429,7 +454,7 @@ class Transformer(nn.Module):
         # self.layers = torch.nn.ModuleList()
         # for layer_id in range(params.n_layers):
         #     self.layers.append(TransformerBlock(layer_id, params))
-        self.layers = ScanLayer(TransformerBlock(0, params), params.n_layers)
+        self.layers = ScanLayer(TransformerBlock(0, params), params.n_layers, unroll_layers=unroll_layers)
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(

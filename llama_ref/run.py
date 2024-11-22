@@ -1,3 +1,4 @@
+import numpy as np
 import jax
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P, NamedSharding
@@ -130,6 +131,7 @@ def main(
   use_custom_offload: bool = True,
   internal_override_layers: int = -1,
   profile_dir: str = 'profile/',
+  unroll_layers: int = 1,
 ):
 
     print(locals())
@@ -183,7 +185,7 @@ def main(
         elif model_impl == 'scan_manual':
             args.tp_size = tp
             sharding_map = sharding_map_scan
-            llama = model_with_collectives.Transformer(args)
+            llama = model_with_collectives.Transformer(args, unroll_layers)
         elif model_impl == 'orig':
             sharding_map = sharding_map_original
             llama = model.Transformer(args)
