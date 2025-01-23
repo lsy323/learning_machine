@@ -343,24 +343,12 @@ def main2(
       **model.transformer_configs[model_type]
     )
 
-    with env:
-      ffn = model.FeedForward(4096, 4096, 256, 1.3)
-      ffn.to('jax')
-    def ffnc(weights, args):
-      weights, args = env.j2t_iso((weights, args))
-      res = torch.func.functional_call(
-        ffn,
-        weights,
-        args
-      )
-      return env.t2j_iso(res)
+    k = jnp.full((1, 32, 2048, 32), fill_value=0.3)
+    q = jnp.full((1, 32, 2048, 32), fill_value=0.3)
+    v = jnp.full((1, 32, 2048, 32), fill_value=0.3)
 
-    env.config.debug_print_each_op = True
-    print('====')
-    print(jax.jit(ffnc).lower(
-      env.t2j_iso(ffn.state_dict()),
-      (jax.ShapeDtypeStruct((3, 100, 4096), jnp.bfloat16.dtype), )
-    ).as_text())
+    print(splash_attn.tpu_splash_attention(k, q, v))
+
 
     breakpoint()
 
@@ -368,4 +356,4 @@ def main2(
 
 if __name__ == '__main__':
     import fire
-    fire.Fire(main)
+    fire.Fire(main2)
