@@ -14,22 +14,23 @@ set -eo
 
 # You can override these by setting corresponding environment variables.
 #: "${CLUSTER_NAME:=bodaborg-v6e-256}"
-: "${CLUSTER_NAME:=bodaborg-v6e-256-donotdelete}"
+: "${CLUSTER_NAME:=mlperf-v5p-128}"
 # "${CLUSTER_NAME:=abhinavsing-in-mem}"
-: "${DOCKER_URL:=gcr.io/tpu-pytorch/llama3:latest}"
-: "${NUM_SLICES:=2}"
-: "${TPU_TYPE:=v6e-256}"
-: "${ZONE:=us-east5-c}"
+: "${DOCKER_URL:=gcr.io/tpu-pytorch/spmd_demo:latest}"
+: "${NUM_SLICES:=1}"
+: "${TPU_TYPE:=v5p-128}"
+: "${ZONE:=europe-west4-b}"
 #: "${PROJECT_ID:=tpu-prod-env-automated}"
-: "${PROJECT_ID:=tpu-prod-env-one-vm}"
+#: "${PROJECT_ID:=tpu-prod-env-one-vm}"
+: "${PROJECT_ID:=cloud-tpu-multipod-dev}"
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
-COMMAND="python run_xpk.py --batch_size=512 --model_type=405B --seqlen=8192 --use_custom_offload=True --use_custom_mesh=False --model_impl=scan --tp=1 --unroll_layers=2"
+COMMAND="bash entrypoint.sh"
 
 xpk workload create \
     --cluster ${CLUSTER_NAME} \
     --docker-image ${DOCKER_URL} \
-    --workload "${USER}-xpk-v6e-256-$NUM_SLICES-${DATETIMESTR}" \
+    --workload "${USER}-$NUM_SLICES-${DATETIMESTR}" \
     --tpu-type=${TPU_TYPE} \
     --num-slices=${NUM_SLICES} \
     --zone $ZONE \
