@@ -29,7 +29,7 @@ class RandomTensorDataset:
 
 xr.use_spmd()
 num_devices = xr.global_runtime_device_count()
-model_axis = 2 
+model_axis = 4
 mesh_shape = (num_devices // model_axis, model_axis, 1, 1)
 device_ids = np.array(range(num_devices))
 print(f"running SPMD with num_devices: {num_devices} mesh: {mesh_shape}", flush=True)
@@ -37,7 +37,7 @@ mesh = xs.Mesh(device_ids, mesh_shape, ("data", "model", "sequence", "dcn"))
 
 batch_size = num_devices // model_axis
 
-num_layers = 4
+num_layers = 16
 dim_out = dim = 4096
 inner_dim = dim * 4
 out_channels = 128
@@ -97,32 +97,60 @@ dataloader_wrapper = pl.MpDeviceLoader(
     input_sharding=xs.ShardingSpec(mesh, partition_spec=("data", None, None), minibatch=False)
 )
 
-def mark_sharding_grads(weights):
-  for name, weights in model.state_dict().items():
-    print(name, weights.shape)
-    if 'layer1' in name:
-      xs.mark_sharding(weights.grad, mesh, ('model', 'data'))
-    if 'layer2' in name:
-      xs.mark_sharding(weights.grad, mesh, ('data', 'model'))
-    if 'output' in name:
-      xs.mark_sharding(weights.grad, mesh, ('model', 'data'))
-
 xm.mark_step()
 start = time.time()
+
+import torch_xla.debug.profiler as xp
+
+server = xp.start_server(9012)
+
+logdir = '/tmp/pytorch-tpu/'
+
+xp.trace_detached(
+    'localhost:9012',
+    logdir=logdir,
+    duration_ms=30000)
+
+
 for sample_index, sample in enumerate(dataloader_wrapper):
+    print('shape', sample.shape)
     print("step {}/{}".format(sample_index, steps_count), flush=True)
 
     xs.mark_sharding(sample, mesh, ("data", None, None)) # ("model", "data")
-    output = model(sample)
-    xs.mark_sharding(output, mesh, ("data", None, None))
-    loss = mse_loss(output, target)
-    log_tensor_sharding(loss, 'loss')
-    loss.backward()
-    optimizer.step()
-    xm.mark_step()
+    xm.wait_device_ops()
+    torch_xla.sync(wait=True)
+    start = time.perf_counter()
+    with xp.Trace('forward'):
+      output = model(sample)
+      xs.mark_sharding(output, mesh, ("data", None, None))
+      loss = mse_loss(output, target)
 
-    log_tensor_sharding(model.m[0].layer1.weight, 'layer1')
-    log_tensor_sharding(model.m[0].layer1.weight.grad, 'layer1 grad')
+    with xp.Trace('backward'):
+      loss.backward()
+
+    with xp.Trace('optimizer'):
+      optimizer.step()
+
+    torch_xla.sync(wait=True)
+    xm.wait_device_ops()
+    end = time.perf_counter()
+    print('iteration {} and time {}'.format(sample_index, end - start))
+
+    # log_tensor_sharding(model.m[0].layer1.weight, 'layer1')
+    # log_tensor_sharding(model.m[0].layer1.weight.grad, 'layer1 grad')
+
+    # for name, x in optimizer.state_dict()['state'].items():
+    #   for name2, y in x.items():
+    #     if isinstance(y, torch.Tensor) and 'xla' in str(y.device):
+    #       log_tensor_sharding(y, 'optimizer: {}'.format(name) + name2)
+    #     else:
+    #       print(name2, type(y))
+
     optimizer.zero_grad()
 
-print(f"Step / sec is {(time.time() - start) / steps_count}")
+print(f"sec / step is {(time.time() - start) / steps_count}")
+
+
+if __name__ == '__main__':
+    import fire
+    fire.Fire(main2)
