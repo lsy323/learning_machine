@@ -13,11 +13,13 @@ set -eo
 ./buildpush.sh
 
 # You can override these by setting corresponding environment variables.
-#: "${CLUSTER_NAME:=bodaborg-v6e-256}"
+# : "${CLUSTER_NAME:=mlperf-v5p-8}"
+# : "${CLUSTER_NAME:=mlperf-v5p-128}"
 : "${CLUSTER_NAME:=lizhiyu-moe-v5p-512}"
-# "${CLUSTER_NAME:=abhinavsing-in-mem}"
-: "${DOCKER_URL:=gcr.io/tpu-pytorch/spmd_demo:latest}"
+: "${DOCKER_URL:=gcr.io/tpu-pytorch/spmd_demo_lsiyuan:latest}"
 : "${NUM_SLICES:=1}"
+# : "${TPU_TYPE:=v5p-128}"
+# : "${TPU_TYPE:=v5p-8}"
 : "${TPU_TYPE:=v5p-512}"
 : "${ZONE:=europe-west4-b}"
 #: "${PROJECT_ID:=tpu-prod-env-automated}"
@@ -25,9 +27,9 @@ set -eo
 : "${PROJECT_ID:=cloud-tpu-multipod-dev}"
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
-COMMAND="bash entrypoint.sh"
+COMMAND="python ffn_jax.py"
 
-xpk workload create \
+/home/lsiyuan/miniconda3/envs/torch310/bin/xpk workload create \
     --cluster ${CLUSTER_NAME} \
     --docker-image ${DOCKER_URL} \
     --workload "${USER}-$TPU_TYPE-${DATETIMESTR}" \

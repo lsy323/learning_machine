@@ -21,15 +21,17 @@ RUN apt-get update && apt-get install -y google-cloud-sdk git fuse gcsfuse && gc
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.10 1
 
 RUN pip install fire
-RUN pip install torch~=2.5.0 'torch_xla[tpu]~=2.5.0' \
-  -f https://storage.googleapis.com/libtpu-releases/index.html \
-  -f https://storage.googleapis.com/libtpu-wheels/index.html
+# RUN pip install torch~=2.5.0 'torch_xla[tpu]~=2.5.0' \
+#   -f https://storage.googleapis.com/libtpu-releases/index.html \
+#   -f https://storage.googleapis.com/libtpu-wheels/index.html
+RUN pip install -U --pre jax jaxlib libtpu requests -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+RUN pip install flax optax
 
 RUN mkdir /workdir
 WORKDIR /workdir
 COPY ./*.py ./
 COPY ./entrypoint.sh ./
-#ENV LIBTPU_INIT_ARGS "--xla_tpu_scoped_vmem_limit_kib=98304 --xla_enable_async_all_gather=true --xla_tpu_overlap_compute_collective_tc=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true"
+# ENV LIBTPU_INIT_ARGS "--xla_tpu_scoped_vmem_limit_kib=98304 --xla_enable_async_all_gather=true --xla_tpu_overlap_compute_collective_tc=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true"
 # ENV LIBTPU_INIT_ARGS "--xla_tpu_enable_flash_attention=false --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_overlap_compute_collective_tc=true --xla_enable_async_all_gather=true --xla_tpu_scoped_vmem_limit_kib=81920"
 # ENV LIBTPU_INIT_ARGS "--xla_tpu_enable_flash_attention=false  --xla_tpu_enable_async_collective_fusion=true  --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true  --xla_tpu_enable_async_collective_fusion_multiple_steps=true  --xla_tpu_overlap_compute_collective_tc=true  --xla_enable_async_all_gather=true  --xla_tpu_scoped_vmem_limit_kib=98304  --xla_latency_hiding_scheduler_rerun=1  --xla_tpu_prefer_async_allgather_to_allreduce=true"
 ENTRYPOINT ["bash", "entrypoint.sh"]
