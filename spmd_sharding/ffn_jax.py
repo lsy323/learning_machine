@@ -102,7 +102,7 @@ def print_hlo(f, args, post_opt=False):
     else:
         print(f.lower(*args).as_text("hlo"))
 
-def main(model_axis=4, num_layers=48, profile_path="gs://lsiyuan-multipod-2/lightricks-ffn-profile/v5p-512-tmp"):
+def main(model_axis=4, num_layers=48, profile_path="gs://lsiyuan-multipod-2/lightricks-ffn-profile/local-v5e-8-tmp"):
     # Model configuration
     model_axis = 4
     batch_size = jax.device_count() // model_axis
@@ -110,7 +110,7 @@ def main(model_axis=4, num_layers=48, profile_path="gs://lsiyuan-multipod-2/ligh
     feature_dim = 4096
     hidden_dim = feature_dim * 4
     out_channels = 128
-    num_layers = 16
+    num_layers = num_layers
     num_steps = 10
 
     # Mesh
@@ -142,7 +142,7 @@ def main(model_axis=4, num_layers=48, profile_path="gs://lsiyuan-multipod-2/ligh
     # Create dummy input for initialization
     # dummy_x = jnp.ones((batch_size, seq_length, feature_dim))
     # dummy_y = jnp.zeros((batch_size, seq_length, out_channels))
-    dummy_x, _ = next(dataset_iter)
+    dummy_x, dummy_y = next(dataset_iter)
     # Initialize parameters
     key = jax.random.PRNGKey(0)
     params = model.init(key, dummy_x)
@@ -201,7 +201,8 @@ def main(model_axis=4, num_layers=48, profile_path="gs://lsiyuan-multipod-2/ligh
     with jax.profiler.trace(profile_path):
         for i in range(num_steps):
             start = time.time()
-            x, y = next(dataset_iter)
+            # x, y = next(dataset_iter)
+            x, y = (dummy_x, dummy_y)
             params, opt_state = train_step(params, x, y, opt_state)
             # print(params['params']['layers_0']['dense1']['kernel'].sharding)
             # print(grads['params']['layers_0']['dense1']['kernel'].sharding)
