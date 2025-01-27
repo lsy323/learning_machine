@@ -18,12 +18,18 @@ RUN curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
 RUN apt-get update && apt-get install -y google-cloud-sdk git fuse gcsfuse && gcsfuse -v
 
 # Set the default Python version to 3.10
+RUN pip install --upgrade pip
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.10 1
+RUN pip install jax[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+RUN pip install optax fire tensorflow tensorboard-plugin-profile
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-RUN pip install fire
-RUN pip install torch~=2.5.0 'torch_xla[tpu]~=2.5.0' \
-  -f https://storage.googleapis.com/libtpu-releases/index.html \
-  -f https://storage.googleapis.com/libtpu-wheels/index.html
+RUN git clone https://github.com/pytorch/xla.git
+WORKDIR xla
+RUN git checkout hanq_torchax
+WORKDIR torchax
+RUN ls
+RUN pip install /xla/torchax
 
 RUN mkdir /workdir
 WORKDIR /workdir

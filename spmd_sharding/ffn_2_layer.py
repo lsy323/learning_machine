@@ -91,6 +91,7 @@ def main(
   mse_loss = nn.MSELoss(reduction='sum')
   optimizer = AdamW(params=model.parameters())
   target = torch.zeros(batch_size, tokens_count, out_channels).to(device=xm.xla_device())
+  xs.mark_sharding(target, mesh, ("data", None, None))
 
   dataloader = RandomTensorDataset(tensor_shape=(batch_size, tokens_count, dim), element_count=steps_count)
   dataloader_wrapper = pl.MpDeviceLoader(
@@ -103,8 +104,6 @@ def main(
   start = time.time()
 
   import torch_xla.debug.profiler as xp
-
-  server = xp.start_server(9012)
 
   xp.trace_detached(
       'localhost:9012',

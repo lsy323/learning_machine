@@ -24,6 +24,8 @@ set -eo
 #: "${PROJECT_ID:=tpu-prod-env-one-vm}"
 : "${PROJECT_ID:=cloud-tpu-multipod-dev}"
 
+ZONE=europe-west4-b
+
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
 COMMAND="bash entrypoint.sh"
 
