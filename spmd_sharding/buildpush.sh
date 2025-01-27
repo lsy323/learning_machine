@@ -6,9 +6,6 @@ else
     SUDO="sudo"
 fi
 
-echo "build"
-$SUDO docker build --network=host -t spmd_demo_lsiyuan .
-echo "tag"
-$SUDO docker tag spmd_demo_lsiyuan gcr.io/tpu-pytorch/spmd_demo_lsiyuan:latest
-echo "upload"
-$SUDO docker push gcr.io/tpu-pytorch/spmd_demo_lsiyuan:latest
+$SUDO docker build --network=host -t spmd_demo .
+$SUDO docker tag spmd_demo gcr.io/tpu-pytorch/spmd_demo:latest
+$SUDO docker push gcr.io/tpu-pytorch/spmd_demo:latest
