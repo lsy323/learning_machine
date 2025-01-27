@@ -8,6 +8,7 @@ import torch
 import time
 from torch.optim import AdamW
 import torch_xla.distributed.parallel_loader as pl
+from torch_xla.experimental.spmd_fully_sharded_data_parallel import SpmdFullyShardedDataParallel
 
 
 def log_tensor_sharding(t: torch.Tensor, log_prefix: str):
@@ -29,23 +30,32 @@ class RandomTensorDataset:
 
 
 def main(
-  model_axis=4,
+  model_axis=2,
   num_layers=48,
-  profile_dir='/tmp/profile_dir'
+  profile_dir='/tmp/profile_dir',
+  use_fsdp_wrapper=False,
 ):
 
+  if use_fsdp_wrapper:
+    model_axis = 1
   xr.use_spmd()
   num_devices = xr.global_runtime_device_count()
   mesh_shape = (num_devices // model_axis, model_axis, 1, 1)
   device_ids = np.array(range(num_devices))
   print(f"running SPMD with num_devices: {num_devices} mesh: {mesh_shape}", flush=True)
-  mesh = xs.Mesh(device_ids, mesh_shape, ("data", "model", "sequence", "dcn"))
+
+  if use_fsdp_wrapper:
+    mesh = xs.Mesh(device_ids, (num_devices, ), ("fsdp", ))
+  else:
+    mesh = xs.Mesh(device_ids, mesh_shape, ("fsdp", "model", "sequence", "dcn"))
+
   dim_out = dim = 4096
   inner_dim = dim * 4
   out_channels = 128
   batch_size = num_devices // model_axis
   tokens_count = 2048
   steps_count = 10
+
 
   class FFN(torch.nn.Module):
     def __init__(self):
@@ -79,49 +89,53 @@ def main(
 
   model = Model().to(xm.xla_device())
 
-  for name, weights in model.state_dict().items():
-    print(name, weights.shape)
-    if 'layer1' in name:
-      xs.mark_sharding(weights, mesh, ('model', 'data'))
-    if 'layer2' in name:
-      xs.mark_sharding(weights, mesh, ('data', 'model'))
-    if 'output' in name:
-      xs.mark_sharding(weights, mesh, ('model', 'data'))
+  if use_fsdp_wrapper:
+    model = SpmdFullyShardedDataParallel(model, mesh=mesh)
+  else:
+    for name, weights in model.state_dict().items():
+      print(name, weights.shape)
+      if 'layer1' in name:
+        xs.mark_sharding(weights, mesh, ('model', 'fsdp'))
+      if 'layer2' in name:
+        xs.mark_sharding(weights, mesh, ('fsdp', 'model'))
+      if 'output' in name:
+        xs.mark_sharding(weights, mesh, ('model', 'fsdp'))
 
   mse_loss = nn.MSELoss(reduction='sum')
   optimizer = AdamW(params=model.parameters())
   target = torch.zeros(batch_size, tokens_count, out_channels).to(device=xm.xla_device())
-  xs.mark_sharding(target, mesh, ("data", None, None))
+  xs.mark_sharding(target, mesh, ("fsdp", None, None))
 
   dataloader = RandomTensorDataset(tensor_shape=(batch_size, tokens_count, dim), element_count=steps_count)
   dataloader_wrapper = pl.MpDeviceLoader(
       dataloader,
       device=xm.xla_device(),
-      input_sharding=xs.ShardingSpec(mesh, partition_spec=("data", None, None), minibatch=False)
+      input_sharding=xs.ShardingSpec(mesh, partition_spec=("fsdp", None, None), minibatch=False)
   )
 
   xm.mark_step()
-  start = time.time()
 
   import torch_xla.debug.profiler as xp
+
+  server = xp.start_server(9012)
 
   xp.trace_detached(
       'localhost:9012',
       logdir=profile_dir,
-      duration_ms=30000)
+      duration_ms=300000)
 
 
   for sample_index, sample in enumerate(dataloader_wrapper):
       print('shape', sample.shape)
       print("step {}/{}".format(sample_index, steps_count), flush=True)
 
-      xs.mark_sharding(sample, mesh, ("data", None, None)) # ("model", "data")
+      xs.mark_sharding(sample, mesh, ("fsdp", None, None)) # ("model", "data")
       xm.wait_device_ops()
       torch_xla.sync(wait=True)
       start = time.perf_counter()
       with xp.Trace('forward'):
         output = model(sample)
-        xs.mark_sharding(output, mesh, ("data", None, None))
+        xs.mark_sharding(output, mesh, ("fsdp", None, None))
         loss = mse_loss(output, target)
 
       with xp.Trace('backward'):
@@ -146,8 +160,6 @@ def main(
       #       print(name2, type(y))
 
       optimizer.zero_grad()
-  print(f"sec / step is {(time.time() - start) / steps_count}")
-
 
 if __name__ == '__main__':
     import fire
