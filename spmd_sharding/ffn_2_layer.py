@@ -31,28 +31,35 @@ class RandomTensorDataset:
 
 def main(
   model_axis=2,
+  fsdp_axis=32,
   num_layers=48,
   profile_dir='/tmp/profile_dir',
   use_fsdp_wrapper=False,
+  per_device_batch_size=None
 ):
 
   if use_fsdp_wrapper:
     model_axis = 1
   xr.use_spmd()
   num_devices = xr.global_runtime_device_count()
-  mesh_shape = (num_devices // model_axis, model_axis, 1, 1)
+  ddp_axis = num_devices // model_axis // fsdp_axis
+
+  mesh_shape = (ddp_axis, fsdp_axis, model_axis)
   device_ids = np.array(range(num_devices))
   print(f"running SPMD with num_devices: {num_devices} mesh: {mesh_shape}", flush=True)
 
   if use_fsdp_wrapper:
     mesh = xs.Mesh(device_ids, (num_devices, ), ("fsdp", ))
   else:
-    mesh = xs.Mesh(device_ids, mesh_shape, ("fsdp", "model", "sequence", "dcn"))
+    mesh = xs.Mesh(device_ids, mesh_shape, ("ddp", "fsdp", "model"))
 
   dim_out = dim = 4096
   inner_dim = dim * 4
   out_channels = 128
-  batch_size = num_devices // model_axis
+  if per_device_batch_size is None:
+    batch_size = (ddp_axis * fsdp_axis)
+  else:
+    batch_size = int(num_devices * per_device_batch_size)
   tokens_count = 2048
   steps_count = 10
 
@@ -104,7 +111,8 @@ def main(
   mse_loss = nn.MSELoss(reduction='sum')
   optimizer = AdamW(params=model.parameters())
   target = torch.zeros(batch_size, tokens_count, out_channels).to(device=xm.xla_device())
-  xs.mark_sharding(target, mesh, ("fsdp", None, None))
+  target = target.reshape(-1, fsdp_axis, tokens_count, out_channels)
+  xs.mark_sharding(target, mesh, ("ddp", "fsdp", None, None))
 
   dataloader = RandomTensorDataset(tensor_shape=(batch_size, tokens_count, dim), element_count=steps_count)
   dataloader_wrapper = pl.MpDeviceLoader(
@@ -126,16 +134,17 @@ def main(
 
 
   for sample_index, sample in enumerate(dataloader_wrapper):
-      print('shape', sample.shape)
       print("step {}/{}".format(sample_index, steps_count), flush=True)
-
-      xs.mark_sharding(sample, mesh, ("fsdp", None, None)) # ("model", "data")
+      
+      sample = sample.reshape(-1, fsdp_axis, tokens_count, dim)
+      print('shape', sample.shape)
+      xs.mark_sharding(sample, mesh, ("ddp", "fsdp", None, None))
       xm.wait_device_ops()
       torch_xla.sync(wait=True)
       start = time.perf_counter()
       with xp.Trace('forward'):
         output = model(sample)
-        xs.mark_sharding(output, mesh, ("fsdp", None, None))
+        xs.mark_sharding(output, mesh, ("ddp", "fsdp", None, None))
         loss = mse_loss(output, target)
 
       with xp.Trace('backward'):
