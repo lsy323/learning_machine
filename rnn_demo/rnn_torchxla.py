@@ -6,12 +6,10 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-import jax
-from jax import numpy as jnp
-import optax
-import torchax as tx 
-from torchax import train
-tx.enable_globally()
+import torch.optim as optim
+import torch_xla.core.xla_model as xm
+
+from dataclasses import dataclass
 
 @dataclass
 class SeqModelConfig:
@@ -19,7 +17,6 @@ class SeqModelConfig:
     n_features: int = 100
     n_hidden: int = 200
     n_targets: int = 1
-
 
 class SeqModel(nn.Module):
     """ Architecture is LLM generated """
@@ -30,6 +27,7 @@ class SeqModel(nn.Module):
 
     def forward(self, x: torch.Tensor):
         output, _ = self.gru(x)  #output, hidden state
+        print('out shape is ', output.shape)
         output = self.linear(output)
         return output
 
@@ -43,47 +41,24 @@ def generate_data(n):
     } for _ in range(n)]
 
 
+def train_step(model, optimizer, x, y, w):
+    """ Industry standard """
+    model.train()
+    optimizer.zero_grad()
+    yhat = model(x)
+    ydiff = yhat - y
+    loss = (ydiff ** 2 * w).mean()
+    loss.backward()
+    optimizer.step()
+    return loss.item() # Return a standard Python number
+
 def main():
-    device = 'jax'
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Check for GPU
+    device = xm.xla_device()
     print('device is ', device)
     blocks = generate_data(1)
-    model = SeqModel(SeqModelConfig()).to('jax') # Move to device
-    env = tx.default_env()
-    env.config.debug_print_each_op = False
-
-    jmodel = tx.interop.JittableModule(model)
-
-    # Split the model parameters to weights and buffers
-    # because buffers is the non-training params
-    def model_fn(weights, buffers, args):
-        return jmodel.functional_call('forward', weights, buffers, args)
-
-    optimizer = optax.adam(0.1) 
-    loss_fn = torch.nn.MSELoss()
-
-    train_step = train.make_train_step(
-        model_fn,
-        loss_fn,
-        optimizer,
-    )
-    #train_step = tx.interop.jax_jit(train_step, {'donate_argnums': (0, 2)})
-
-
-    
-
-    opt_state = tx.interop.call_jax(optimizer.init, jmodel.params)
-    weights = jmodel.params
-    print(
-        jax.jit(tx.interop.jax_view(train_step)
-                ).lower(
-                    tx.interop.jax_view(jmodel.params),
-                    tx.interop.jax_view(jmodel.buffers),
-                    tx.interop.jax_view(opt_state),
-                    jax.ShapeDtypeStruct((25, 2000, 100), jnp.float32.dtype),
-                    jax.ShapeDtypeStruct((25, 2000, 1), jnp.float32.dtype)
-                ).as_text()
-    )
-    return
+    model = SeqModel(SeqModelConfig()).to(device) # Move to device
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)  # Use PyTorch optimizer
 
     for epoch in range(5):
         t0 = time.time()
@@ -99,12 +74,11 @@ def main():
             sample_b = 0
             for _ in range(n_batches):
                 sample_e = sample_b + batch_size
-                loss, weights, opt_state = train_step(weights, {}, opt_state, 
-                                                      x[sample_b:sample_e], y[sample_b:sample_e])
+                last_loss = train_step(model, optimizer, x[sample_b:sample_e], y[sample_b:sample_e], w[sample_b:sample_e])
                 sample_b = sample_e
             total_samples += y.shape[0]
 
-        loss.jax().block_until_ready()
+        xm.wait_for_device_ops()  # only needed to measure time
         t1 = time.time()
         dt = t1 - t0
         print(dt, "s", dt / total_samples * 1e6, "us/sample", nbytes / dt * 1e-6, "MB/s", f"Loss: {last_loss}") #added loss print
