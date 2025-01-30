@@ -1,3 +1,5 @@
+import flax
+import flax.nnx
 import os
 import time
 from collections import deque
@@ -7,6 +9,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import jax
+import jax._src.prng
 from jax import numpy as jnp
 import optax
 import torchax as tx 
@@ -20,16 +23,48 @@ class SeqModelConfig:
     n_hidden: int = 200
     n_targets: int = 1
 
+    
+class FromFlax(nn.Module):
+    
+    def __init__(self, flax_module, env):
+        super().__init__()
+        state = flax.nnx.state(flax_module)
+        graphdef, state = flax.nnx.split(flax_module)
+        flattened_state, self._tree_spec = jax.tree_util.tree_flatten(state)
+
+        cond = lambda a: isinstance(a, jax.Array) and a.dtype in (jnp.float32.dtype, jnp.bfloat16.dtype)
+        self.params = torch.nn.ParameterList(
+            [env.j2t_iso(a) for a in flattened_state if cond(a)]
+        )
+        self._other = [a for a in flattened_state if not cond(a)]
+        self._flax_mod_graph = graphdef
+
+    def forward(self, x):
+        unflattened_state = jax.tree_unflatten(
+            self._tree_spec,
+            tx.interop.jax_view(list(self.params)) + self._other
+        )
+        flax_mod = flax.nnx.merge(self._flax_mod_graph, unflattened_state)
+        res = tx.interop.call_jax(
+            flax_mod,
+            x
+        )
+        return res
+
 
 class SeqModel(nn.Module):
     """ Architecture is LLM generated """
     def __init__(self, config: SeqModelConfig):
         super().__init__()
-        self.gru = nn.GRU(config.n_features, config.n_hidden, batch_first=True)  #batch_first added
+        #self.gru = nn.GRU(config.n_features, config.n_hidden, batch_first=True)  #batch_first added
+        gru = flax.nnx.nn.recurrent.RNN(
+            flax.nnx.nn.recurrent.GRUCell(
+            in_features=config.n_features, hidden_features=config.n_hidden, rngs = flax.nnx.Rngs(0)))
+        self.gru = FromFlax(gru, tx.default_env())
         self.linear = nn.Linear(config.n_hidden, config.n_targets)
 
     def forward(self, x: torch.Tensor):
-        output, _ = self.gru(x)  #output, hidden state
+        output = self.gru(x)  #output, hidden state
         output = self.linear(output)
         return output
 
@@ -83,7 +118,6 @@ def main():
                     jax.ShapeDtypeStruct((25, 2000, 1), jnp.float32.dtype)
                 ).as_text()
     )
-    return
 
     for epoch in range(5):
         t0 = time.time()
@@ -107,7 +141,7 @@ def main():
         loss.jax().block_until_ready()
         t1 = time.time()
         dt = t1 - t0
-        print(dt, "s", dt / total_samples * 1e6, "us/sample", nbytes / dt * 1e-6, "MB/s", f"Loss: {last_loss}") #added loss print
+        print(dt, "s", dt / total_samples * 1e6, "us/sample", nbytes / dt * 1e-6, "MB/s", f"Loss: {loss}") #added loss print
 
 if __name__ == '__main__':
   main()
