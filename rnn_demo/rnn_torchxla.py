@@ -14,8 +14,8 @@ from dataclasses import dataclass
 @dataclass
 class SeqModelConfig:
     """ Parameters are LLM generated """
-    n_features: int = 100
-    n_hidden: int = 200
+    n_features: int = 10
+    n_hidden: int = 20
     n_targets: int = 1
 
 class SeqModel(nn.Module):
@@ -35,9 +35,9 @@ class SeqModel(nn.Module):
 def generate_data(n):
     """ context and feature count is LLM generated """
     return [{
-        'x': torch.randn(250, 2000, 100).float(),
-        'y': torch.randn(250, 2000, 1).float(),
-        'w': torch.ones(250, 2000, 1).float(),
+        'x': torch.randn(250, 20, 10).float(),
+        'y': torch.randn(250, 20, 1).float(),
+        'w': torch.ones(250, 20, 1).float(),
     } for _ in range(n)]
 
 

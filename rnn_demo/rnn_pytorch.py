@@ -26,7 +26,6 @@ class SeqModel(nn.Module):
 
     def forward(self, x: torch.Tensor):
         output, _ = self.gru(x)  #output, hidden state
-        print('out shape is ', output.shape)
         output = self.linear(output)
         return output
 
@@ -41,7 +40,9 @@ def generate_data(n):
 
 
 def train_step(model, optimizer, x, y, w):
-    """ Industry standard """
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
     model.train()
     optimizer.zero_grad()
     yhat = model(x)
@@ -49,6 +50,9 @@ def train_step(model, optimizer, x, y, w):
     loss = (ydiff ** 2 * w).mean()
     loss.backward()
     optimizer.step()
+    end.record()
+    torch.cuda.synchronize()
+    print('step time is', start.elapsed_time(end))
     return loss.item() # Return a standard Python number
 
 def main():
