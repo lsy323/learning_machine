@@ -73,11 +73,7 @@ def main():
             n_batches = 10
             batch_size, rem = divmod(n, n_batches)
             print(f"{batch_size=}")
-            sample_b = 0
-            for _ in range(n_batches):
-                sample_e = sample_b + batch_size
-                last_loss = train_step(model, optimizer, x[sample_b:sample_e], y[sample_b:sample_e], w[sample_b:sample_e])
-                sample_b = sample_e
+            last_loss = train_step(model, optimizer, x, y, w)
             total_samples += y.shape[0]
 
         t1 = time.time()
