@@ -31,7 +31,6 @@ So we observe 2 things:
 
 The task here is to debug and figure out what is going on.
 
-
 ## Step 1: get a baseline
 
 One way to get a baseline is to run similar workloads on GPU and to see what happens.
@@ -185,25 +184,30 @@ Now, is the result reasonable now?
 
 ## Comparison
 
+NOTE: One change that is done to `rnn_jax.py` and `run_pytorch.py` to get
+higher throughput (on both) is to make it run with batch size of 250 directly
+instead of further dividing them to batches of 25, also simplying the code.
+With this change, `rnn_pytorch.py` on L4 actually gave 1208MB/s.
+
 Let's compare with the [L4 spec](https://www.nvidia.com/en-us/data-center/l4/) and 
 [v6e spec](https://cloud.google.com/tpu/docs/v6e)
 
-  | hardware | Compute (TFLOPS) | Memory Bandwidth (GB/s) | RNN Throughput (MB/s) |
+| hardware | Compute (TFLOPS) | Memory Bandwidth (GB/s) | RNN Throughput (MB/s) |
 |---|---|---|---|
-| L4 | 242 | 300 | 343 |
+| L4 | 242 | 300 | 1208 |
 | v6e | 918 | 1640 | 3532 |
 
 So the numbers we have gotten seems about right.
 
-## Aside: what else is there in tensorboard
+# Aside: what else is there in tensorboard
 
 Other tabs I often look are:
+
 1. Memory viewer:
 ![](image-1.png)
 this view tells me how much memory I used and how large I can further increase batch size.
 
 2. Op Profile
-
 ![](image-2.png)
 this view tells me what ops are consumes the total time, and if I am compute or
 memory or communication bound.
