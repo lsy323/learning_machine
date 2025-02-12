@@ -1,3 +1,4 @@
+import math 
 import time
 from typing import Optional, List, Tuple, Callable, Any
 from contextlib import contextmanager
@@ -64,28 +65,75 @@ def get_segment_partition_spec(partition_sepc: Optional[Tuple[str, ...]] = None,
         output = (*batch_spec, sequence_spec)
         
     return output
+
+def _manual_mode(
+    func, 
+    mesh,
+    input_specs,
+    output_specs
+):
+
+    def _full_shape(a, spec):
+        # a is local tensor
+        # spec is the sharding spec
+        # return logical shape of global tensor
+        mesh_name_to_size = dict(
+            zip(mesh.axis_names, mesh.mesh_shape)
+        )
+
+        result_shape = []
+        for axis_size, axis_sharding in zip(a.shape, spec):
+            if axis_sharding is None:
+                new_size = axis_size
+            else:
+                if isinstance(axis_sharding, str):
+                    mesh_mult = mesh_name_to_size[axis_sharding]
+                else:
+                    # tuple or list
+                    mesh_mult = math.prod(mesh_name_to_size[a] for a in axis_sharding)
+                    
+                if mesh_mult is not None:
+                    new_size = axis_size * mesh_mult
+            result_shape.append(new_size)
+        return tuple(result_shape)
+
+    def wrapped(*args):
+        assert len(args) == len(input_specs), f'args={len(args)}; input_specs={len(input_specs)}'
+        new_args = tuple(
+            xs.enable_manual_sharding(a, spec, mesh=mesh).global_tensor 
+            if isinstance(a, torch.Tensor) and spec is not None else a
+            for a, spec in zip(args, input_specs)
+        )
+        res = func(*new_args)
+        if isinstance(res, tuple):
+            return tuple(
+                xs.disable_manual_sharding(
+                    a, spec, _full_shape(a, spec), mesh=mesh).global_tensor 
+                if isinstance(a, torch.Tensor) and spec is not None else a
+                for a, spec in zip(res, output_specs)
+            )
+        else:
+            return xs.disable_manual_sharding(
+                    res, output_specs[0], 
+                    _full_shape(res, output_specs[0]), mesh=mesh).global_tensor 
+        return res
+    return wrapped
     
 
 def fa_custom_forward(
     q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, causal: bool,
     q_segment_ids: torch.Tensor, kv_segment_ids: torch.Tensor, sm_scale: float,
-    ab: Optional[torch.Tensor], partition_spec: str, mesh: str,
+    ab: Optional[torch.Tensor],
     ctx_grad: List[bool]
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
            torch.Tensor, torch.Tensor]:
-
-    partition_spec = eval(partition_spec)
-    
-    has_seq = partition_spec[-2] != None
-    
+    has_seq = False
     if has_seq:
         k = xm.all_gather(k, -2)
         v = xm.all_gather(v, -2)
         if kv_segment_ids is not None:
             # Gathers all the kv_segment_ids to all devices
             kv_segment_ids = xm.all_gather(kv_segment_ids, -1)
-        
-    mesh = xs.get_global_mesh()
 
     from jax.experimental.pallas.ops.tpu.flash_attention import _flash_attention_impl
 
@@ -107,31 +155,36 @@ def fa_custom_forward(
         full_ab = ab.clone()
     else:
         full_ab = None
-        if partition_spec is not None:
-            q_full_shape = q.shape
+        q_full_shape = q.shape
     
 
     
-    kv_spec = partition_spec[:-2] + (None, ) + partition_spec[-1:]
-    q = xs.enable_manual_sharding(q, partition_spec, mesh=mesh).global_tensor
     q_mid_shape = q.shape
-    q = q.reshape(-1, *q.shape[-3:])
-    k = xs.enable_manual_sharding(k, kv_spec, mesh=mesh).global_tensor
     k_mid_shape = k.shape
-    k = k.reshape(-1, *k.shape[-3:])
-    v = xs.enable_manual_sharding(v, kv_spec, mesh=mesh).global_tensor
-
-    
     v_mid_shape = v.shape
-    v = v.reshape(-1, *v.shape[-3:])
+    q_segment_ids_mid_shape = q_segment_ids.shape
+    kv_segment_ids_mid_shape = kv_segment_ids.shape
 
-    if ab is not None:
-        ab = xs.enable_manual_sharding(
-            ab, partition_spec, mesh=mesh).global_tensor
-        ab_mid_shape = ab.shape
-        ab = ab.reshape(-1, *ab_mid_shape[-3:])
+    print('qshape', q_mid_shape)
+    print('qshape', k_mid_shape)
+    print('qshape', v_mid_shape)
+    print('qshape', q_segment_ids_mid_shape)
+    print('qshape', kv_segment_ids_mid_shape)
+    print('ab', ab.shape if ab is not None else 'None')
+
+
+    if len(q.shape) == 5:
+        num_batches, batch_size = q.shape[:2]
+        q = q.reshape(-1, *q.shape[-3:])
+        k = k.reshape(-1, *k.shape[-3:])
+        v = v.reshape(-1, *v.shape[-3:])
+        if ab is not None:
+            ab = ab.reshape(-1, *ab.shape[-3:])
+        q_segment_ids = q_segment_ids.reshape(-1, *q_segment_ids_mid_shape[-1:])
+        kv_segment_ids = kv_segment_ids.reshape(-1, *kv_segment_ids_mid_shape[-1:])
     else:
-        ab_mid_shape = None
+        num_batches = None
+        batch_size = q.shape[0]
         
     # It computes the shape and type of o, l, m.
     shapes = [q.shape]
@@ -145,26 +198,16 @@ def fa_custom_forward(
             dtypes.append(torch.float32)
 
     with torch.no_grad():
-        if partition_spec is not None and q_segment_ids is not None and kv_segment_ids is not None:
-            # partition_spec is for q,k,v with shape [batch, num_head, seq_len, head_dim], segment id
-            # is of shape [batch, seq_len], hence we need to tweak it a bit
-            segment_id_partition_spec = get_segment_partition_spec(partition_spec, q_segment_ids.ndim)
-            segment_id_partition_spec_no_seq = segment_id_partition_spec[:-1] + (None, )
+        # if partition_spec is not None and q_segment_ids is not None and kv_segment_ids is not None:
+        #     # partition_spec is for q,k,v with shape [batch, num_head, seq_len, head_dim], segment id
+        #     # is of shape [batch, seq_len], hence we need to tweak it a bit
+        #     segment_id_partition_spec = get_segment_partition_spec(partition_spec, q_segment_ids.ndim)
+        #     segment_id_partition_spec_no_seq = segment_id_partition_spec[:-1] + (None, )
             
-            q_segment_ids = xs.enable_manual_sharding(
-                q_segment_ids, segment_id_partition_spec, mesh=mesh).global_tensor
-            q_segment_ids_mid_shape = q_segment_ids.shape
-            q_segment_ids = q_segment_ids.reshape(-1, *q_segment_ids_mid_shape[-1:])
-
             
-            kv_segment_ids = xs.enable_manual_sharding(
-                kv_segment_ids, segment_id_partition_spec_no_seq, mesh=mesh).global_tensor
-            kv_segment_ids_mid_shape = kv_segment_ids.shape
-            kv_segment_ids = kv_segment_ids.reshape(-1, *kv_segment_ids_mid_shape[-1:])
-            
-        else:
-            q_segment_ids_mid_shape = None
-            kv_segment_ids_mid_shape = None
+        # else:
+        #     q_segment_ids_mid_shape = None
+        #     kv_segment_ids_mid_shape = None
             
         segment_ids, q_segment_ids_fa, kv_segment_ids_fa = FlashAttention.prepare_segment_ids(
             q_segment_ids, kv_segment_ids)
@@ -174,7 +217,7 @@ def fa_custom_forward(
         q_mid_shape,
         k_mid_shape,
         v_mid_shape,
-        ab_mid_shape,
+        None,#ab_mid_shape,
         q_segment_ids_mid_shape,
         kv_segment_ids_mid_shape
     ]
@@ -217,8 +260,6 @@ def fa_custom_forward(
         # SPMD integration
         if partition_spec is not None:
             o = o.reshape(q_mid_shape)
-            o = xs.disable_manual_sharding(
-                o, partition_spec, q_full_shape, mesh=mesh).global_tensor
             # We need to consistently return full_q, full_k, full_v,... even though they are empty to support AOT.
             return tuple([o] + [torch.Tensor() for _ in range(6)] + shapes_out)
 
@@ -228,25 +269,19 @@ def fa_custom_forward(
 
     
     # SPMD integration
-    if partition_spec is not None:
+    #if partition_spec is not None:
         # Should be [batch, num_head, seq_len]
-        lm_shape = q_full_shape[:-1]
-        lm_spec = partition_spec[:-1]
-        lm_mid_shape = q_mid_shape[:-1]
-        
-        o = o.reshape(q_mid_shape)
-        o = xs.disable_manual_sharding(
-            o, partition_spec, q_full_shape, mesh=mesh).global_tensor
-        
+    lm_shape = q_full_shape[:-1]
+    lm_mid_shape = q_mid_shape[:-1]
+    
+    if num_batches is not None:
+        o = o.reshape(num_batches, batch_size, *o.shape[1:])
+    
         # m is pre soft-max (q@k.T) matrix, kept for numerical stabilization during backward
-        m = m.reshape(*lm_mid_shape)
-        m = xs.disable_manual_sharding(
-            m, lm_spec, lm_shape, mesh=mesh).global_tensor
-        
+        m = m.reshape(num_batches, batch_size, *m.shape[1:])
+    
         # l is the sum of exponents in m, kept for numerical stabilization during backward
-        l = l.reshape(*lm_mid_shape)
-        l = xs.disable_manual_sharding(
-            l, lm_spec, lm_shape, mesh=mesh).global_tensor
+        l = l.reshape(num_batches, batch_size, *l.shape[1:])
         
 
     # q_segment_ids and kv_segment_ids are sharded here if partition_spec is provided
@@ -288,10 +323,25 @@ def fa_custom_backward(
     kv_full_shape = torch.Size(kv_full_shape)
     ab_full_shape = torch.Size(ab_full_shape) if ab_full_shape is not None else None
 
-    l = l.reshape(-1, *l.shape[-2:])
-    m = m.reshape(-1, *m.shape[-2:])
-    grad_output = grad_output.reshape(-1, *grad_output.shape[-3:])
-    o = o.reshape(-1, *o.shape[-3:])
+    if len(q.shape) == 5:
+        num_batches, batch_size = q.shape[:2]
+        grad_output = grad_output.reshape(-1, *grad_output.shape[2:])
+        q = q.reshape(-1, *q.shape[2:])
+        k = k.reshape(-1, *k.shape[2:])
+        v = v.reshape(-1, *v.shape[2:])
+        o = o.reshape(-1, *o.shape[2:])
+        l = l.reshape(-1, *l.shape[2:])
+        m = m.reshape(-1, *m.shape[2:])
+        if q_segment_ids is not None:
+            q_segment_ids = q_segment_ids.reshape(-1, *q_segment_ids.shape[2:])
+        if kv_segment_ids is not None:
+            kv_segment_ids = kv_segment_ids.reshape(-1, *kv_segment_ids.shape[2:])
+        if ab is not None:
+            ab = ab.reshape(-1, *ab.shape[2:])
+    else:
+        num_batches = None
+        batch_size = q.shape[0]
+
 
     grad_i = torch.sum(
         o.to(torch.float32) * grad_output.to(torch.float32),
@@ -319,54 +369,17 @@ def fa_custom_backward(
                 #q_segment_ids = xm.all_gather(q_segment_ids, -2)
                 #kv_segment_ids = xm.all_gather(kv_segment_ids, -2)
             
-            q_segment_ids = xs.enable_manual_sharding(
-                q_segment_ids, segment_id_partition_spec, mesh=mesh).global_tensor
-            q_seq = q_segment_ids.shape[-1]
-            q_segment_ids = q_segment_ids.reshape(-1, q_seq)
-
-            kv_segment_ids = xs.enable_manual_sharding(kv_segment_ids, segment_id_partition_spec, mesh=mesh).global_tensor
-            
-            kv_seq = kv_segment_ids.shape[-1]
-            kv_segment_ids = kv_segment_ids.reshape(-1, kv_seq)
 
 
-        q = xm.all_gather(q, -2)
-        k = xm.all_gather(k, -2)
-        v = xm.all_gather(v, -2)
-        q = xs.enable_manual_sharding(q, partition_spec, mesh=mesh).global_tensor
-        k = xs.enable_manual_sharding(k, partition_spec, mesh=mesh).global_tensor
-        v = xs.enable_manual_sharding(v, partition_spec, mesh=mesh).global_tensor
-        
-        q_seq = q.shape[-2]
-        q = q.reshape(-1, *q_mid_shape[-3:-2], q_seq, q_mid_shape[-1])
-        kv_seq = k.shape[-2]
-        k = k.reshape(-1, *k_mid_shape[-3:-2], kv_seq, k_mid_shape[-1])
-        v = v.reshape(-1, *v_mid_shape[-3:-2], kv_seq, v_mid_shape[-1])
+        # q = xm.all_gather(q, -2)
+        # k = xm.all_gather(k, -2)
+        # v = xm.all_gather(v, -2)
         
         if len(partition_spec) == 4:
             used_partition_spec = partition_spec
         else:
             used_partition_spec = (partition_spec[:-3], ) + partition_spec[-3:]
         
-        expanded_l = xs.enable_manual_sharding(
-            expanded_l, used_partition_spec, mesh=mesh).global_tensor
-        expanded_l = expanded_l.reshape(-1, *expanded_l.shape[-3:])
-        
-        expanded_m = xs.enable_manual_sharding(
-            expanded_m, used_partition_spec, mesh=mesh).global_tensor
-        expanded_m = expanded_m.reshape(-1, *expanded_m.shape[-3:])
-        
-        grad_output = xs.enable_manual_sharding(grad_output, used_partition_spec, mesh=mesh).global_tensor
-        grad_output = grad_output.reshape(-1, *grad_output.shape[-3:])
-    
-        expanded_grad_i = xs.enable_manual_sharding(
-            expanded_grad_i, used_partition_spec, mesh=mesh).global_tensor
-        expanded_grad_i = expanded_grad_i.reshape(-1, *expanded_grad_i.shape[-3:])
-        
-        if ab is not None:
-            ab = xs.enable_manual_sharding(ab, partition_spec, mesh=mesh).global_tensor
-            ab = ab.reshape(-1, *ab_mid_shape[-3:])
-
     if q_segment_ids is not None and kv_segment_ids is not None:
         segment_ids, q_segment_ids_fa, kv_segment_ids_fa = SPMDFlashAttention.prepare_segment_ids(
             q_segment_ids, kv_segment_ids)
@@ -461,25 +474,12 @@ def fa_custom_backward(
 
     # SPMD integration
     
-    if partition_spec is not None:
-        q_seq = grad_q.shape[-2]
-
-        grad_q = grad_q.reshape(*q_mid_shape[:-2], q_seq, *q_mid_shape[-1:])
-        grad_q = xs.disable_manual_sharding(
-            grad_q, partition_spec, q_full_shape, mesh=mesh).global_tensor
-        kv_seq_len = k.shape[-2]
-        fixed_k_shape = k_mid_shape[:-2] + (kv_seq_len, ) + k_mid_shape[-1:]
-        grad_k = grad_k.reshape(fixed_k_shape)
-        grad_k = xs.disable_manual_sharding(
-            grad_k, partition_spec, kv_full_shape, mesh=mesh).global_tensor
-        fixed_v_shape = v_mid_shape[:-2] + (kv_seq_len, ) + v_mid_shape[-1:]
-        grad_v = grad_v.reshape(fixed_v_shape)
-        grad_v = xs.disable_manual_sharding(
-            grad_v, partition_spec, kv_full_shape, mesh=mesh).global_tensor
-        if ab is not None:
-            grad_ab = grad_ab.reshape(-1, *ab_mid_shape[-3:])
-            grad_ab = xs.disable_manual_sharding(
-                grad_ab, partition_spec, ab_full_shape, mesh=mesh).global_tensor
+    if num_batches is not None:
+        grad_q = grad_q.reshape(num_batches, batch_size, *grad_q.shape[1:])
+        grad_k = grad_k.reshape(num_batches, batch_size, *grad_k.shape[1:])
+        grad_v = grad_v.reshape(num_batches, batch_size, *grad_v.shape[1:])
+        if grad_ab is not None:
+            grad_ab = grad_ab.reshape(num_batches, batch_size, *grad_ab.shape[1:])
     
     return grad_q, grad_k, grad_v, grad_ab
 
@@ -542,15 +542,65 @@ class SPMDFlashAttention(FlashAttention):
         ctx.q_segment_ids_mid_shape = None
         ctx.kv_segment_ids_mid_shape = None
         ctx.ab_mid_shape = None
-        partition_spec = str(partition_spec)
-        mesh = str(mesh)
+
+        kv_spec = partition_spec[:-2] + (None, ) + partition_spec[-1:]
+        if len(partition_spec) == 5:
+            segment_id_spec = (partition_spec[0], partition_spec[1], partition_spec[3])
+        else:
+            segment_id_spec = (partition_spec[0], partition_spec[2])
+        
+        # q, k, v, causal, q_segment_ids, kv_segment_ids, sm_scale, ab,
+        input_shardings = [
+            partition_spec,
+            partition_spec,
+            partition_spec,
+            None,
+            segment_id_spec,
+            segment_id_spec,
+            None,
+            partition_spec,
+            None,
+        ]
+
+        if len(partition_spec) == 4:
+            lm_spec = partition_spec[0:3]
+        else:
+            lm_spec = partition_spec[0:4]
+
+        #outs = [o] + 
+        # [full_q, full_k, full_v, l, m, full_ab] + 
+        # shapes_out + [lm_mid_shape, ]
+        output_shardings = [
+            partition_spec,
+            partition_spec,
+            partition_spec,
+            partition_spec,
+            lm_spec,
+            lm_spec,
+            partition_spec,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
+        ]
+        
         custom_op_arg = [
             q, k, v, causal, q_segment_ids, kv_segment_ids, sm_scale, ab,
-            partition_spec, mesh
         ]
         ctx_grads = generate_ctx_need_grad(*custom_op_arg)
         # AOT compatiable funtion only accepts argument types listed https://github.com/pytorch/pytorch/blob/82859f61857ef39898b34a5cdf0ae56ec25704d9/torch/_functorch/_aot_autograd/utils.py#L23-L34, so we serliaze partition_spec and mesh into string.
-        outs = fa_custom_forward(*custom_op_arg, ctx_grads)
+
+        fa_custom_forward_manual = _manual_mode(
+            fa_custom_forward,
+            mesh,
+            input_shardings,
+            output_shardings
+        )
+
+        outs = fa_custom_forward_manual(*custom_op_arg, ctx_grads)
 
         o = outs[0]
         (
@@ -602,9 +652,59 @@ class SPMDFlashAttention(FlashAttention):
             str(partition_spec),
             str(mesh), q_full_shape, kv_full_shape, ab_full_shape
         ]
+
+        if len(partition_spec) == 4:
+            segment_id_spec = (partition_spec[0], partition_spec[2])
+            lm_spec = partition_spec[0:3]
+        else:
+            segment_id_spec = (partition_spec[0], partition_spec[1], partition_spec[3])
+            lm_spec = partition_spec[0:4]
+
+        input_specs = [
+            partition_spec, # grad_output
+            partition_spec, # q
+            partition_spec, # k
+            partition_spec, # v
+            partition_spec, # o
+            lm_spec, # l
+            lm_spec, # m
+            segment_id_spec, # q_segment_ids
+            segment_id_spec, # kv_segment_ids
+            partition_spec, # ab
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
+        ]
+
+        output_specs = [
+            partition_spec,
+            partition_spec,
+            partition_spec,
+            partition_spec,
+        ]
+
+        fa_custom_backward_manual = _manual_mode(
+            fa_custom_backward,
+            mesh,
+            input_specs,
+            output_specs
+        )
+
   
         ctx_grads = ctx.needs_input_grad
-        grad_q, grad_k, grad_v, grad_ab = fa_custom_backward(
+        grad_q, grad_k, grad_v, grad_ab = fa_custom_backward_manual(
             *custom_op_arg, ctx_grads,
             ctx.q_mid_shape, ctx.k_mid_shape, ctx.v_mid_shape,
             ctx.ab_mid_shape, ctx.q_segment_ids_mid_shape, ctx.kv_segment_ids_mid_shape,
@@ -622,7 +722,7 @@ if __name__ == "__main__":
     
     parser.add_argument('--is-3d', action='store_true', default=False, help='Whether to test 3D attention')
     parser.add_argument('--replicated', action='store_true', default=False, help='Whether to test replicated attention')
-    parser.add_argument('--sequence-axis', type=int, default=2, help='Sequence axis')
+    parser.add_argument('--sequence-axis', type=int, default=1, help='Sequence axis')
     parser.add_argument('--model-axis', type=int, default=1, help='Model axis')
     parser.add_argument('--ddp-axis', type=int, default=4, help='DDP axis')
     parser.add_argument('--forward-only', action='store_true', default=False, help='Whether to test forward only')
@@ -654,6 +754,7 @@ if __name__ == "__main__":
     fsdp_axis = num_devices // sequence_axis // ddp_axis // model_axis
     mesh_shape = (ddp_axis, fsdp_axis, model_axis, sequence_axis)
     device_ids = np.array(range(num_devices))
+    print('mesh shape is', mesh_shape)
     mesh = Mesh(device_ids, mesh_shape, ("data","fsdp", "model", "sequence"))
     attn_spec = ("data", "fsdp", "model", "sequence", None)
     if args.replicated:
@@ -666,7 +767,7 @@ if __name__ == "__main__":
     k_seq = 512 * 8
     depth = 256
     num_heads = 8
-    minibatch, batch_size = ddp_axis, batch_size//ddp_axis
+    minibatch, batch_size = ddp_axis*2, batch_size//ddp_axis //2
     if args.is_3d:
         attn_spec = (
             (attn_spec[0], attn_spec[1]),
@@ -675,7 +776,7 @@ if __name__ == "__main__":
             attn_spec[4]
         )
 
-    for i in range(3):
+    for i in range(5):
         print(f'-======== iteration {i}======')
         print(f'Creating data with q_sec {q_seq} k_seq {k_seq} depth {depth} num_heads {num_heads} batch_size {batch_size}', flush=True)
         
