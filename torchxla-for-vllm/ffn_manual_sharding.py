@@ -16,6 +16,18 @@ def all_reduce(tensor):
     return xm.all_reduce(xm.REDUCE_SUM, tensor)
 
 
+# ParallelLinear
+# Suppose 2 devices
+# Base case: A [m, n] @ B[n, k] => C[m, k], A is FFN input, B, C are weights
+#            C [m, k] @ D[k, n] => O[m, n]
+# Column parallel B = [B1, B2], Sharded along column
+#                 A @ B' => C' = [m, k // 2] (Output has partial shape)
+
+# Row paralle D = [ D1
+#                   D2 ]
+# C' [m, k // 2] @ D' [k // 2, n] => C' [m, n] (Output has full shape but partial sum)
+# all-reduce(C) for full result
+
 class FeedForward(torch.nn.Module):
 
     def __init__(self, input_dim, hidden_dim, n_chips):
@@ -25,9 +37,11 @@ class FeedForward(torch.nn.Module):
         self.w3 = nn.Linear(input_dim, hidden_dim // n_chips, bias=False)
 
     def forward(self, x):
+        # Out shape: [bs, seq_len, hidden_dim // n_chips]
         w1_proj = self.w1(x)
         w3_proj = self.w3(x)
         act = F.silu(w1_proj * w3_proj)
+        # Out shape: [bs, seq_len, input_dim]
         res = self.w2(act)
         res = all_reduce(res)
         return res
@@ -60,6 +74,13 @@ def _mp_fn(index):
     print(f"n_chips: {tp_size}, current ordinal: {index}")
     ffn = FeedForward(input_dim, hidden_dim, tp_size)
     load_weights(ffn, index, tp_size)
+    
+    if index == 0:
+        print(f"w1/w3 full shape: {w1_full.shape}")
+        print(f"w2 full shape: {w2_full.shape}")
+        print(f"w1/w3 sharded shape: {ffn.w1.weight.shape}")
+        print(f"w2 sharded shape: {ffn.w2.weight.shape}")
+    
     input = torch.rand(bs, seq_len, input_dim)
     input = input.to('xla')
     ffn = ffn.to('xla')
