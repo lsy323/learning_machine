@@ -1,0 +1,8 @@
+HloModule SyncTensorsGraph.4, is_scheduled=true, entry_computation_layout={(f32[3]{0:T(128)})->(f32[3]{0:T(128)})}, replica_count=4
+
+ENTRY SyncTensorsGraph.4 {
+  p0.1 = f32[3]{0:T(128)} parameter(0)
+  cosine.2 = f32[3]{0:T(128)} cosine(p0.1), backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":[],"output_window_bounds":["1"],"input_window_bounds":[],"estimated_cycles":"2121","iteration_bounds":["1"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"2048"}],"retry_config":{"retry_count":"0"}}
+  ROOT tuple.3 = (f32[3]{0:T(128)}) tuple(cosine.2)
+}
+

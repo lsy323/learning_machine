@@ -1,0 +1,6 @@
+host_dma_sizes {
+}
+host_transfer_sizes {
+}
+host_execution_transfer_sizes {
+}

@@ -1,0 +1,23 @@
+Total bytes used: 2116 (2.1KiB)
+
+Allocations sorted by size:
+
+cumulative_size; total_size - cumulative_size; allocation
+------------------------------------------------------------------------------
+      512B( 24%);     1.6KiB; allocation 1: size 512B, maybe-live-out:
+    1.0KiB( 48%);     1.1KiB; allocation 2: size 512B, maybe-live-out:
+    1.5KiB( 73%);       580B; allocation 3: size 512B, parameter 0, shape |f32[3]| at ShapeIndex {}:
+    2.0KiB( 97%);        68B; allocation 4: size 512B, color 1, preallocated-temp:
+    2.0KiB( 98%);        36B; allocation 0: size 32B, output shape is |(f32[3], f32[3])|, maybe-live-out:
+    2.1KiB(100%);         4B; allocation 5: size 32B, preallocated-temp:
+    2.1KiB(100%);         0B; allocation 6: size 4B, color 2, preallocated-temp:
+
+
+Allocations sorted by size with their values:
+allocation 1: size 512B, maybe-live-out:
+allocation 2: size 512B, maybe-live-out:
+allocation 3: size 512B, parameter 0, shape |f32[3]| at ShapeIndex {}:
+allocation 4: size 512B, color 1, preallocated-temp:
+allocation 0: size 32B, output shape is |(f32[3], f32[3])|, maybe-live-out:
+allocation 5: size 32B, preallocated-temp:
+allocation 6: size 4B, color 2, preallocated-temp:

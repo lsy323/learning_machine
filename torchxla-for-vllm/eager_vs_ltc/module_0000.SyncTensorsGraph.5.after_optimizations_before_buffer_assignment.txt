@@ -1,0 +1,9 @@
+HloModule SyncTensorsGraph.5, is_scheduled=true, entry_computation_layout={(f32[3]{0:T(128)})->(f32[3]{0:T(128)}, f32[3]{0:T(128)})}, replica_count=4
+
+ENTRY SyncTensorsGraph.5 {
+  p0.1 = f32[3]{0:T(128)} parameter(0)
+  sine.2 = f32[3]{0:T(128)} sine(p0.1)
+  abs.3 = f32[3]{0:T(128)} abs(sine.2)
+  ROOT tuple.4 = (f32[3]{0:T(128)}, f32[3]{0:T(128)}) tuple(sine.2, abs.3)
+}
+

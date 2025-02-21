@@ -1,0 +1,8 @@
+HloModule SyncTensorsGraph.4, is_scheduled=true, entry_computation_layout={(f32[3]{0:T(128)})->(f32[3]{0:T(128)})}, replica_count=4
+
+ENTRY SyncTensorsGraph.4 {
+  p0.1 = f32[3]{0:T(128)} parameter(0)
+  cosine.2 = f32[3]{0:T(128)} cosine(p0.1)
+  ROOT tuple.3 = (f32[3]{0:T(128)}) tuple(cosine.2)
+}
+

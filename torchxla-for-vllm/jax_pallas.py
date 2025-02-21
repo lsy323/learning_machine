@@ -1,8 +1,7 @@
 import jax
 import jax.numpy as jnp
-import functools
-
-from jax.experimental.pallas.ops.tpu.paged_attention.paged_attention_kernel import paged_attention
+from jax.experimental.pallas.ops.tpu.paged_attention.paged_attention_kernel import \
+    paged_attention
 
 
 def paged_attn(

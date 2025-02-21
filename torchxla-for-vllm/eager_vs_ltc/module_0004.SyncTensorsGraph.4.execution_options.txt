@@ -1,0 +1,14 @@
+num_replicas: 4
+device_assignment {
+  replica_count: 4
+  computation_count: 1
+  computation_devices {
+    replica_device_ids: 0
+    replica_device_ids: 1
+    replica_device_ids: 2
+    replica_device_ids: 3
+  }
+}
+num_partitions: 1
+allow_spmd_sharding_propagation_to_output: false
+allow_spmd_sharding_propagation_to_parameters: false

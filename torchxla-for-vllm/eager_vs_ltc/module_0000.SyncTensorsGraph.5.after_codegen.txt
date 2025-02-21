@@ -1,0 +1,11 @@
+HloModule SyncTensorsGraph.5, is_scheduled=true, entry_computation_layout={(f32[3]{0:T(128)})->(f32[3]{0:T(128)}, f32[3]{0:T(128)})}, replica_count=4
+
+ENTRY SyncTensorsGraph.5 {
+  p0.1 = f32[3]{0:T(128)} parameter(0)
+  sine.2 = f32[3]{0:T(128)S(1)} sine(p0.1), backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":[],"output_window_bounds":["1"],"input_window_bounds":[],"estimated_cycles":"2120","iteration_bounds":["1"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"1024"}],"retry_config":{"retry_count":"0"}}
+  copy-start = (f32[3]{0:T(128)}, f32[3]{0:T(128)S(1)}, u32[]{:S(2)}) copy-start(sine.2)
+  abs.3 = f32[3]{0:T(128)} abs(sine.2), backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":[],"output_window_bounds":["1"],"input_window_bounds":[],"estimated_cycles":"2120","iteration_bounds":["1"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"1024"}],"retry_config":{"retry_count":"0"}}
+  copy-done = f32[3]{0:T(128)} copy-done(copy-start)
+  ROOT tuple.4 = (f32[3]{0:T(128)}, f32[3]{0:T(128)}) tuple(copy-done, abs.3)
+} // SyncTensorsGraph.5
+
