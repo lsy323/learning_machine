@@ -35,7 +35,7 @@ allocation 4: size 16.00MiB, maybe-live-out:
 
 	cumulative_size;       size;       offset; used_by_n_values; shapes_list
 	------------------------------------------------------------
-	 16.00MiB(100%);   16.00MiB;            0;                2; f32[8,128,3584], f32[8,128,4096]
+	 16.00MiB(100%);   16.00MiB;            0;                2; f32[8,128,4096], f32[8,128,3584]
 
 allocation 5: size 16.00MiB, parameter 3, shape |f32[8,128,4096]| at ShapeIndex {}:
 allocation 10: size 48.0KiB, preallocated-temp:
@@ -43,9 +43,9 @@ allocation 10: size 48.0KiB, preallocated-temp:
 	cumulative_size;       size;       offset; used_by_n_values; shapes_list
 	------------------------------------------------------------
 	     512B( 84%);       512B;        16384;                1; f32[]
-	     544B( 89%);        32B;        32768;                1; (f32[4096,3584], f32[4096,3584], u32[])
+	     544B( 89%);        32B;            0;                1; (f32[8,128,4096], f32[])
 	     576B( 95%);        32B;        49152;                1; (f32[8,128,4096], f32[8,128,4096], u32[])
-	     608B(100%);        32B;            0;                1; (f32[8,128,4096], f32[])
+	     608B(100%);        32B;        32768;                1; (f32[4096,3584], f32[4096,3584], u32[])
 
 allocation 0: size 512B, thread-local:
 allocation 6: size 512B, parameter 0, shape |f32[]| at ShapeIndex {}:
@@ -56,6 +56,6 @@ allocation 11: size 8B, color 2, preallocated-temp:
 
 	cumulative_size;       size;       offset; used_by_n_values; shapes_list
 	------------------------------------------------------------
-	       4B( 50%);         4B;            0;                1; u32[]
-	       8B(100%);         4B;            4;                1; u32[]
+	       4B( 50%);         4B;            4;                1; u32[]
+	       8B(100%);         4B;            0;                1; u32[]
 

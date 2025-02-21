@@ -8,13 +8,13 @@ import torch_xla.debug.profiler as xp
 
 
 class FeedForward(torch.nn.Module):
-    
+
     def __init__(self, input_dim, hidden_dim):
         super(FeedForward, self).__init__()
         self.w1 = nn.Linear(input_dim, hidden_dim, bias=False)
         self.w3 = nn.Linear(input_dim, hidden_dim, bias=False)
         self.w2 = nn.Linear(hidden_dim, input_dim, bias=False)
-    
+
     def forward(self, x):
         w1_proj = self.w1(x)
         w3_proj = self.w3(x)
@@ -22,14 +22,15 @@ class FeedForward(torch.nn.Module):
         res = self.w2(act)
         return res
 
+
 # class M(torch.nn.Module):
-    
+
 #     def __init__(self, input_dim, hidden_dim, n_layer):
 #         super(M, self).__init__()
 #         self.layers = []
 #         for _ in range(n_layer):
 #             self.layers.append(FeedForward(input_dim, hidden_dim))
-    
+
 #     def forward(self, x):
 #         for layer in self.layers:
 #             x = layer(x)
@@ -47,7 +48,6 @@ ffn = FeedForward(input_dim, intermediate_size)
 
 input = input.to('xla')
 ffn = ffn.to('xla')
-
 
 with torch.no_grad():
     ffn_out = ffn(input)

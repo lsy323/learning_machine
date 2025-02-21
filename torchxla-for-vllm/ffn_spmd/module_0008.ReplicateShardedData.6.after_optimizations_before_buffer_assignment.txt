@@ -1,0 +1,8 @@
+HloModule ReplicateShardedData.6, is_scheduled=true, entry_computation_layout={(f32[32,512,4096]{2,1,0:T(8,128)})->f32[128,512,4096]{2,1,0:T(8,128)}}, num_partitions=4
+
+ENTRY ReplicateShardedData.6_spmd {
+  param = f32[32,512,4096]{2,1,0:T(8,128)} parameter(0), sharding={devices=[4,1,1]0,1,2,3}
+  all-gather.5 = f32[128,512,4096]{2,1,0:T(8,128)} all-gather(param), channel_id=1, replica_groups={{0,1,2,3}}, dimensions={0}, use_global_device_ids=true, frontend_attributes={async_collective_name="all-gather-start"}, backend_config={"flag_configs":[],"barrier_config":{"barrier_type":"CUSTOM","id":"0"},"scoped_memory_configs":[],"used_scoped_memory_configs":[]}
+  ROOT copy.1 = f32[128,512,4096]{2,1,0:T(8,128)} copy(all-gather.5)
+}
+

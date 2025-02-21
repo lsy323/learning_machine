@@ -1,0 +1,25 @@
+HloModule SyncTensorsGraph.21, entry_computation_layout={(f32[4096,14336]{1,0:T(8,128)}, f32[14336,4096]{1,0:T(8,128)}, f32[128,512,4096]{2,1,0:T(8,128)}, f32[14336,4096]{1,0:T(8,128)})->(f32[128,512,4096]{2,1,0:T(8,128)})}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
+
+ENTRY SyncTensorsGraph.21 {
+  p2.5 = f32[128,512,4096]{2,1,0} parameter(2), sharding={devices=[4,1,1]0,1,2,3}
+  reshape.11 = f32[65536,4096]{1,0} reshape(p2.5)
+  p3.9 = f32[14336,4096]{1,0} parameter(3), sharding={devices=[4,1]0,1,2,3}
+  transpose.10 = f32[4096,14336]{0,1} transpose(p3.9), dimensions={1,0}
+  dot.12 = f32[65536,14336]{1,0} dot(reshape.11, transpose.10), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.13 = f32[128,512,14336]{2,1,0} reshape(dot.12)
+  reshape.6 = f32[65536,4096]{1,0} reshape(p2.5)
+  p1.3 = f32[14336,4096]{1,0} parameter(1), sharding={devices=[4,1]0,1,2,3}
+  transpose.4 = f32[4096,14336]{0,1} transpose(p1.3), dimensions={1,0}
+  dot.7 = f32[65536,14336]{1,0} dot(reshape.6, transpose.4), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.8 = f32[128,512,14336]{2,1,0} reshape(dot.7)
+  multiply.14 = f32[128,512,14336]{2,1,0} multiply(reshape.13, reshape.8)
+  logistic.15 = f32[128,512,14336]{2,1,0} logistic(multiply.14)
+  multiply.16 = f32[128,512,14336]{2,1,0} multiply(multiply.14, logistic.15)
+  reshape.17 = f32[65536,14336]{1,0} reshape(multiply.16)
+  p0.1 = f32[4096,14336]{1,0} parameter(0), sharding={devices=[1,4]0,1,2,3}
+  transpose.2 = f32[14336,4096]{0,1} transpose(p0.1), dimensions={1,0}
+  dot.18 = f32[65536,4096]{1,0} dot(reshape.17, transpose.2), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.19 = f32[128,512,4096]{2,1,0} reshape(dot.18)
+  ROOT tuple.20 = (f32[128,512,4096]{2,1,0}) tuple(reshape.19)
+} // SyncTensorsGraph.21
+

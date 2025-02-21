@@ -1,0 +1,10 @@
+HloModule ReplicateShardedData.6, entry_computation_layout={(f32[128,512,4096]{2,1,0:T(8,128)})->f32[128,512,4096]{2,1,0:T(8,128)}}, num_partitions=4
+
+ENTRY ReplicateShardedData.6 {
+  p0.1 = f32[128,512,4096]{2,1,0} parameter(0), sharding={devices=[4,1,1]0,1,2,3}
+  constant.2 = s32[] constant(0), sharding={replicated}
+  convert.3 = f32[] convert(constant.2), sharding={replicated}
+  broadcast.4 = f32[128,512,4096]{2,1,0} broadcast(convert.3), dimensions={}, sharding={replicated}
+  ROOT add.5 = f32[128,512,4096]{2,1,0} add(p0.1, broadcast.4), sharding={replicated}
+}
+
