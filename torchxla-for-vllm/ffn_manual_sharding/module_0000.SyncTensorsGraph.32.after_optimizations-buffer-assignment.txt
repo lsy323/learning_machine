@@ -1,0 +1,221 @@
+BufferAssignment:
+allocation 0: size 512, thread-local:
+ value: <6 add.27 @0> (size=512,offset=0): f32[]{:T(128)}
+allocation 1: size 58720256, parameter 4, shape |f32[3584,4096]| at ShapeIndex {}:
+ value: <33 p4.10 @0> (size=58720256,offset=0): f32[3584,4096]{1,0:T(8,128)}
+allocation 2: size 58720256, parameter 2, shape |f32[3584,4096]| at ShapeIndex {}:
+ value: <35 p2.4 @0> (size=58720256,offset=0): f32[3584,4096]{1,0:T(8,128)}
+allocation 3: size 58720256, parameter 1, shape |f32[4096,3584]| at ShapeIndex {}:
+ value: <37 p1.2 @0> (size=58720256,offset=0): f32[4096,3584]{1,0:T(8,128)}
+allocation 4: size 16777216, maybe-live-out:
+ value: <34 fusion.10 @0> (size=14680064,offset=0): f32[8,128,3584]{2,1,0:T(8,128)}
+ value: <44 all-reduce.28{0} @0> (size=16777216,offset=0): f32[8,128,4096]{2,1,0:T(8,128)}
+allocation 5: size 16777216, parameter 3, shape |f32[8,128,4096]| at ShapeIndex {}:
+ value: <29 p3.6 @0> (size=16777216,offset=0): f32[8,128,4096]{2,1,0:T(8,128)}
+allocation 6: size 512, parameter 0, shape |f32[]| at ShapeIndex {}:
+ value: <42 p0.1 @0> (size=512,offset=0): f32[]{:T(128)}
+allocation 7: size 32, output shape is |(f32[8,128,4096])|, maybe-live-out:
+ value: <46 tuple.31{} @0> (size=32,offset=0): (f32[8,128,4096]{2,1,0:T(8,128)})
+allocation 8: size 512, thread-local:
+ value: <5 y.26 @0> (size=512,offset=0): f32[]{:T(128)}
+allocation 9: size 512, thread-local:
+ value: <4 x.25 @0> (size=512,offset=0): f32[]{:T(128)}
+allocation 10: size 49184, preallocated-temp:
+ value: <30 copy-start.1{} @0> (size=32,offset=49152): (f32[8,128,4096]{2,1,0:T(8,128)S(1)}, f32[8,128,4096]{2,1,0:T(8,128)}, u32[]{:S(2)})
+ value: <38 copy-start{} @0> (size=32,offset=32768): (f32[4096,3584]{1,0:T(8,128)S(1)}, f32[4096,3584]{1,0:T(8,128)}, u32[]{:S(2)})
+ value: <43 all-reduce.28{} @0> (size=32,offset=0): (f32[8,128,4096]{2,1,0:T(8,128)}, f32[]{:T(128)})
+ value: <45 all-reduce.28{1} @0> (size=512,offset=16384): f32[]{:T(128)}
+allocation 11: size 8, color 2, preallocated-temp:
+ value: <32 copy-start.1{2} @2> (size=4,offset=4): u32[]{:S(2)}
+ value: <40 copy-start{2} @2> (size=4,offset=0): u32[]{:S(2)}
+allocation 12: size 90177536, color 1, preallocated-temp:
+ value: <31 copy-start.1{0} @1> (size=16777216,offset=73400320): f32[8,128,4096]{2,1,0:T(8,128)S(1)}
+ value: <36 fusion.12 @1> (size=14680064,offset=58720256): f32[8,128,3584]{2,1,0:T(8,128)S(1)}
+ value: <39 copy-start{0} @1> (size=58720256,offset=0): f32[4096,3584]{1,0:T(8,128)S(1)}
+ value: <41 fusion @1> (size=16777216,offset=73400320): f32[8,128,4096]{2,1,0:T(8,128)S(1)}
+
+Total bytes used: 299944008 (286.05MiB)
+
+Used values:
+<4 x.25 @0>
+ positions:
+  x.25
+ uses:
+  add.27, operand 0
+ from instruction: %x.25 = f32[]{:T(128)} parameter(0)
+<5 y.26 @0>
+ positions:
+  y.26
+ uses:
+  add.27, operand 1
+ from instruction: %y.26 = f32[]{:T(128)} parameter(1)
+<6 add.27 @0>
+ positions:
+  add.27
+ uses:
+ from instruction: %add.27 = f32[]{:T(128)} add(f32[]{:T(128)} %x.25, f32[]{:T(128)} %y.26)
+<29 p3.6 @0>
+ positions:
+  p3.6
+  copy-start.1 {1}
+ uses:
+  copy-start.1, operand 0
+  fusion.12, operand 0
+  copy-done.1, operand 0 {1}
+ from instruction: %p3.6 = f32[8,128,4096]{2,1,0:T(8,128)} parameter(3)
+<30 copy-start.1{} @0>
+ positions:
+  copy-start.1 {}
+ uses:
+  copy-done.1, operand 0 {}
+ from instruction: %copy-start.1 = (f32[8,128,4096]{2,1,0:T(8,128)S(1)}, f32[8,128,4096]{2,1,0:T(8,128)}, u32[]{:S(2)}) copy-start(f32[8,128,4096]{2,1,0:T(8,128)} %p3.6)
+<31 copy-start.1{0} @1>
+ positions:
+  copy-start.1 {0}
+  copy-done.1
+ uses:
+  copy-done.1, operand 0 {0}
+  fusion.10, operand 0
+ from instruction: %copy-start.1 = (f32[8,128,4096]{2,1,0:T(8,128)S(1)}, f32[8,128,4096]{2,1,0:T(8,128)}, u32[]{:S(2)}) copy-start(f32[8,128,4096]{2,1,0:T(8,128)} %p3.6)
+<32 copy-start.1{2} @2>
+ positions:
+  copy-start.1 {2}
+ uses:
+  copy-done.1, operand 0 {2}
+ from instruction: %copy-start.1 = (f32[8,128,4096]{2,1,0:T(8,128)S(1)}, f32[8,128,4096]{2,1,0:T(8,128)}, u32[]{:S(2)}) copy-start(f32[8,128,4096]{2,1,0:T(8,128)} %p3.6)
+<33 p4.10 @0>
+ positions:
+  p4.10
+ uses:
+  fusion.10, operand 1
+ from instruction: %p4.10 = f32[3584,4096]{1,0:T(8,128)} parameter(4)
+<34 fusion.10 @0>
+ positions:
+  fusion.10
+ uses:
+  fusion, operand 0
+ from instruction: %fusion.10 = f32[8,128,3584]{2,1,0:T(8,128)} fusion(f32[8,128,4096]{2,1,0:T(8,128)S(1)} %copy-done.1, f32[3584,4096]{1,0:T(8,128)} %p4.10), kind=kOutput, calls=%fused_computation.8
+<35 p2.4 @0>
+ positions:
+  p2.4
+ uses:
+  fusion.12, operand 1
+ from instruction: %p2.4 = f32[3584,4096]{1,0:T(8,128)} parameter(2)
+<36 fusion.12 @1>
+ positions:
+  fusion.12
+ uses:
+  fusion, operand 1
+ from instruction: %fusion.12 = f32[8,128,3584]{2,1,0:T(8,128)S(1)} fusion(f32[8,128,4096]{2,1,0:T(8,128)} %p3.6, f32[3584,4096]{1,0:T(8,128)} %p2.4), kind=kOutput, calls=%fused_computation.10
+<37 p1.2 @0>
+ positions:
+  p1.2
+  copy-start {1}
+ uses:
+  copy-start, operand 0
+  copy-done, operand 0 {1}
+ from instruction: %p1.2 = f32[4096,3584]{1,0:T(8,128)} parameter(1)
+<38 copy-start{} @0>
+ positions:
+  copy-start {}
+ uses:
+  copy-done, operand 0 {}
+ from instruction: %copy-start = (f32[4096,3584]{1,0:T(8,128)S(1)}, f32[4096,3584]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(f32[4096,3584]{1,0:T(8,128)} %p1.2), cross_program_prefetch_index=0
+<39 copy-start{0} @1>
+ positions:
+  copy-start {0}
+  copy-done
+ uses:
+  copy-done, operand 0 {0}
+  fusion, operand 2
+ from instruction: %copy-start = (f32[4096,3584]{1,0:T(8,128)S(1)}, f32[4096,3584]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(f32[4096,3584]{1,0:T(8,128)} %p1.2), cross_program_prefetch_index=0
+<40 copy-start{2} @2>
+ positions:
+  copy-start {2}
+ uses:
+  copy-done, operand 0 {2}
+ from instruction: %copy-start = (f32[4096,3584]{1,0:T(8,128)S(1)}, f32[4096,3584]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(f32[4096,3584]{1,0:T(8,128)} %p1.2), cross_program_prefetch_index=0
+<41 fusion @1>
+ positions:
+  fusion
+ uses:
+  all-reduce.28, operand 0
+ from instruction: %fusion = f32[8,128,4096]{2,1,0:T(8,128)S(1)} fusion(f32[8,128,3584]{2,1,0:T(8,128)} %fusion.10, f32[8,128,3584]{2,1,0:T(8,128)S(1)} %fusion.12, f32[4096,3584]{1,0:T(8,128)S(1)} %copy-done), kind=kOutput, calls=%fused_computation
+<42 p0.1 @0>
+ positions:
+  p0.1
+ uses:
+  all-reduce.28, operand 1
+ from instruction: %p0.1 = f32[]{:T(128)} parameter(0)
+<43 all-reduce.28{} @0>
+ positions:
+  all-reduce.28 {}
+ uses:
+  get-tuple-element.29, operand 0 {}
+ from instruction: %all-reduce.28 = (f32[8,128,4096]{2,1,0:T(8,128)}, f32[]{:T(128)}) all-reduce(f32[8,128,4096]{2,1,0:T(8,128)S(1)} %fusion, f32[]{:T(128)} %p0.1), replica_groups={}, constrain_layout=true, to_apply=%AddComputation.24, backend_config={"flag_configs":[],"barrier_config":{"barrier_type":"CUSTOM","id":"0"},"scoped_memory_configs":[{"memory_space":"0","offset":"0","size":"67108864"}],"used_scoped_memory_configs":[]}
+<44 all-reduce.28{0} @0>
+ positions:
+  all-reduce.28 {0}
+  get-tuple-element.29
+  tuple.31 {0}
+ uses:
+  tuple.31, operand 0
+ from instruction: %all-reduce.28 = (f32[8,128,4096]{2,1,0:T(8,128)}, f32[]{:T(128)}) all-reduce(f32[8,128,4096]{2,1,0:T(8,128)S(1)} %fusion, f32[]{:T(128)} %p0.1), replica_groups={}, constrain_layout=true, to_apply=%AddComputation.24, backend_config={"flag_configs":[],"barrier_config":{"barrier_type":"CUSTOM","id":"0"},"scoped_memory_configs":[{"memory_space":"0","offset":"0","size":"67108864"}],"used_scoped_memory_configs":[]}
+<45 all-reduce.28{1} @0>
+ positions:
+  all-reduce.28 {1}
+ uses:
+ from instruction: %all-reduce.28 = (f32[8,128,4096]{2,1,0:T(8,128)}, f32[]{:T(128)}) all-reduce(f32[8,128,4096]{2,1,0:T(8,128)S(1)} %fusion, f32[]{:T(128)} %p0.1), replica_groups={}, constrain_layout=true, to_apply=%AddComputation.24, backend_config={"flag_configs":[],"barrier_config":{"barrier_type":"CUSTOM","id":"0"},"scoped_memory_configs":[{"memory_space":"0","offset":"0","size":"67108864"}],"used_scoped_memory_configs":[]}
+<46 tuple.31{} @0>
+ positions:
+  tuple.31 {}
+ uses:
+ from instruction: %tuple.31 = (f32[8,128,4096]{2,1,0:T(8,128)}) tuple(f32[8,128,4096]{2,1,0:T(8,128)} %get-tuple-element.29)
+
+
+HloLiveRange (max 15):
+  InstructionSequence:
+    0:p1.2
+    1:copy-start
+    2:p0.1
+    3:p3.6
+    4:p4.10
+    5:p2.4
+    6:copy-start.1
+    7:fusion.12
+    8:copy-done.1
+    9:fusion.10
+    10:copy-done
+    11:fusion
+    12:all-reduce.28
+    13:get-tuple-element.29
+    14:tuple.31
+  BufferLiveRange:
+    p3.6{}:0-15
+    copy-start.1{}:6-8
+    copy-start.1{0}:6-9
+    copy-start.1{2}:6-8
+    p4.10{}:0-15
+    fusion.10{}:9-11
+    p2.4{}:0-15
+    fusion.12{}:7-11
+    p1.2{}:0-15
+    copy-start{}:1-10
+    copy-start{0}:1-11
+    copy-start{2}:1-10
+    fusion{}:11-12
+    p0.1{}:0-15
+    all-reduce.28{}:12-13
+    all-reduce.28{0}:12-15
+    all-reduce.28{1}:12-12
+    tuple.31{}:14-15
+  Live ranges at 11 (peak):
+    p3.6: 16777216 bytes
+    p4.10: 58720256 bytes
+    fusion.10: 14680064 bytes
+    p2.4: 58720256 bytes
+    fusion.12: 14680064 bytes
+    p1.2: 58720256 bytes
+    copy-start: 24 bytes
+    fusion: 16777216 bytes
+    p0.1: 4 bytes

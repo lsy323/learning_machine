@@ -1,0 +1,87 @@
+HloModule SyncTensorsGraph.32, is_scheduled=true, entry_computation_layout={(f32[]{:T(128)}, f32[4096,3584]{1,0:T(8,128)}, f32[3584,4096]{1,0:T(8,128)}, f32[8,128,4096]{2,1,0:T(8,128)}, f32[3584,4096]{1,0:T(8,128)})->(f32[8,128,4096]{2,1,0:T(8,128)})}, replica_count=4
+
+AddComputation.24 {
+  y.26 = f32[]{:T(128)} parameter(1)
+  x.25 = f32[]{:T(128)} parameter(0)
+  ROOT add.27 = f32[]{:T(128)} add(x.25, y.26)
+}
+
+fused_computation.6.clone {
+  param_0.11 = f32[8,128,3584]{2,1,0:T(8,128)} parameter(0)
+  param_1.11 = f32[8,128,3584]{2,1,0:T(8,128)S(1)} parameter(1)
+  multiply.5 = f32[8,128,3584]{2,1,0:T(8,128)} multiply(param_0.11, param_1.11)
+  logistic.1 = f32[8,128,3584]{2,1,0:T(8,128)} logistic(multiply.5)
+  ROOT multiply.1 = f32[8,128,3584]{2,1,0:T(8,128)} multiply(multiply.5, logistic.1)
+}
+
+bitcast_fusion.2 {
+  param_0.26 = f32[4096,3584]{1,0:T(8,128)S(1)} parameter(0)
+  bitcast.37 = f32[4096,3584,1]{1,0,2:T(8,128)} bitcast(param_0.26)
+  ROOT bitcast.23 = f32[4096,3584,1]{1,0,2:T(8,128)} bitcast(bitcast.37)
+}
+
+fused_computation {
+  param_0.16 = f32[8,128,3584]{2,1,0:T(8,128)} parameter(0)
+  param_1.16 = f32[8,128,3584]{2,1,0:T(8,128)S(1)} parameter(1)
+  logistic_multiply_fusion.1 = f32[8,128,3584]{2,1,0:T(8,128)} fusion(param_0.16, param_1.16), kind=kLoop, calls=fused_computation.6.clone
+  param_2.2 = f32[4096,3584]{1,0:T(8,128)S(1)} parameter(2)
+  fusion.20 = f32[4096,3584,1]{1,0,2:T(8,128)} fusion(param_2.2), kind=kLoop, calls=bitcast_fusion.2
+  ROOT convolution.3 = f32[8,128,4096]{2,1,0:T(8,128)S(1)} convolution(logistic_multiply_fusion.1, fusion.20), window={size=1}, dim_labels=0bf_oi0->0bf
+} // fused_computation
+
+bitcast_fusion {
+  bitcast_input = f32[8,128,4096]{2,1,0:T(8,128)S(1)} parameter(0)
+  ROOT bitcast.21 = f32[8,128,4096]{2,1,0:T(8,128)} bitcast(bitcast_input)
+}
+
+bitcast_fusion.3 {
+  param_0.23 = f32[3584,4096]{1,0:T(8,128)} parameter(0)
+  bitcast.33 = f32[3584,4096,1]{1,0,2:T(8,128)} bitcast(param_0.23)
+  ROOT bitcast.24 = f32[3584,4096,1]{1,0,2:T(8,128)} bitcast(bitcast.33)
+}
+
+fused_computation.8 {
+  param_0.12 = f32[8,128,4096]{2,1,0:T(8,128)S(1)} parameter(0)
+  fusion.18 = f32[8,128,4096]{2,1,0:T(8,128)} fusion(param_0.12), kind=kLoop, calls=bitcast_fusion
+  param_1.18 = f32[3584,4096]{1,0:T(8,128)} parameter(1)
+  fusion.21 = f32[3584,4096,1]{1,0,2:T(8,128)} fusion(param_1.18), kind=kLoop, calls=bitcast_fusion.3
+  ROOT convolution.8 = f32[8,128,3584]{2,1,0:T(8,128)} convolution(fusion.18, fusion.21), window={size=1}, dim_labels=0bf_oi0->0bf
+}
+
+bitcast_fusion.1 {
+  bitcast_input.1 = f32[8,128,4096]{2,1,0:T(8,128)} parameter(0)
+  ROOT bitcast.22 = f32[8,128,4096]{2,1,0:T(8,128)} bitcast(bitcast_input.1)
+}
+
+bitcast_fusion.4 {
+  param_0.20 = f32[3584,4096]{1,0:T(8,128)} parameter(0)
+  bitcast.29 = f32[3584,4096,1]{1,0,2:T(8,128)} bitcast(param_0.20)
+  ROOT bitcast.25 = f32[3584,4096,1]{1,0,2:T(8,128)} bitcast(bitcast.29)
+}
+
+fused_computation.10 {
+  param_0.14 = f32[8,128,4096]{2,1,0:T(8,128)} parameter(0)
+  fusion.19 = f32[8,128,4096]{2,1,0:T(8,128)} fusion(param_0.14), kind=kLoop, calls=bitcast_fusion.1
+  param_1.17 = f32[3584,4096]{1,0:T(8,128)} parameter(1)
+  fusion.22 = f32[3584,4096,1]{1,0,2:T(8,128)} fusion(param_1.17), kind=kLoop, calls=bitcast_fusion.4
+  ROOT convolution.9 = f32[8,128,3584]{2,1,0:T(8,128)S(1)} convolution(fusion.19, fusion.22), window={size=1}, dim_labels=0bf_oi0->0bf
+}
+
+ENTRY SyncTensorsGraph.32 {
+  p1.2 = f32[4096,3584]{1,0:T(8,128)} parameter(1)
+  copy-start = (f32[4096,3584]{1,0:T(8,128)S(1)}, f32[4096,3584]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(p1.2), cross_program_prefetch_index=0
+  p0.1 = f32[]{:T(128)} parameter(0)
+  p3.6 = f32[8,128,4096]{2,1,0:T(8,128)} parameter(3)
+  p4.10 = f32[3584,4096]{1,0:T(8,128)} parameter(4)
+  p2.4 = f32[3584,4096]{1,0:T(8,128)} parameter(2)
+  copy-start.1 = (f32[8,128,4096]{2,1,0:T(8,128)S(1)}, f32[8,128,4096]{2,1,0:T(8,128)}, u32[]{:S(2)}) copy-start(p3.6)
+  fusion.12 = f32[8,128,3584]{2,1,0:T(8,128)S(1)} fusion(p3.6, p2.4), kind=kOutput, calls=fused_computation.10, backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":["1","448","2"],"output_window_bounds":["8","16","28"],"input_window_bounds":["8","16","2"],"estimated_cycles":"128128","iteration_bounds":["1","1","1","1","16"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"9801728"}],"retry_config":{"retry_count":"0"},"convolution_algorithm_config":{"emitter":"EmitAllBatchInSublanes"}}
+  copy-done.1 = f32[8,128,4096]{2,1,0:T(8,128)S(1)} copy-done(copy-start.1)
+  fusion.10 = f32[8,128,3584]{2,1,0:T(8,128)} fusion(copy-done.1, p4.10), kind=kOutput, calls=fused_computation.8, backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":["1","224","4"],"output_window_bounds":["8","16","14"],"input_window_bounds":["8","16","4"],"estimated_cycles":"108650","iteration_bounds":["2","1","1","1","8"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"22925312"}],"retry_config":{"retry_count":"0"},"convolution_algorithm_config":{"emitter":"EmitAllBatchInSublanes"}}
+  copy-done = f32[4096,3584]{1,0:T(8,128)S(1)} copy-done(copy-start)
+  fusion = f32[8,128,4096]{2,1,0:T(8,128)S(1)} fusion(fusion.10, fusion.12, copy-done), kind=kOutput, calls=fused_computation, backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":["1","512","4"],"output_window_bounds":["8","16","32"],"input_window_bounds":["8","16","4"],"estimated_cycles":"73104","iteration_bounds":["1","1","1","1","7"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"5255168"}],"retry_config":{"retry_count":"0"},"convolution_algorithm_config":{"emitter":"EmitAllBatchInSublanes"}}
+  all-reduce.28 = (f32[8,128,4096]{2,1,0:T(8,128)}, f32[]{:T(128)}) all-reduce(fusion, p0.1), replica_groups={}, constrain_layout=true, to_apply=AddComputation.24, backend_config={"flag_configs":[],"barrier_config":{"barrier_type":"CUSTOM","id":"0"},"scoped_memory_configs":[{"memory_space":"0","offset":"0","size":"67108864"}],"collective_algorithm_config":{"emitter":"RotatedPincerEmitter","strategy":"UniDirectionNDRingStrategy","debug":"\nUniDirectionNDRingStrategy{colors:4 phases:2 cores:{2 2},{2 2},{2 2},{2 2} nophase0:0 reserved_sflags:1 cross_module_on_2d_plane:0 has_reordering_map:0 use_routing_table_indices:0 num_dims:2 active_dims:111 dim_sizes:2,2 dim_used:{0 1},{1 0},{0 1},{1 0}}"},"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"25559040"}],"retry_config":{"retry_count":"0"}}
+  get-tuple-element.29 = f32[8,128,4096]{2,1,0:T(8,128)} get-tuple-element(all-reduce.28), index=0
+  ROOT tuple.31 = (f32[8,128,4096]{2,1,0:T(8,128)}) tuple(get-tuple-element.29)
+} // SyncTensorsGraph.32
+

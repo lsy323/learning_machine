@@ -1,0 +1,38 @@
+HloModule SyncTensorsGraph.32, entry_computation_layout={(f32[]{:T(128)}, f32[4096,3584]{1,0:T(8,128)}, f32[3584,4096]{1,0:T(8,128)}, f32[8,128,4096]{2,1,0:T(8,128)}, f32[3584,4096]{1,0:T(8,128)})->(f32[8,128,4096]{2,1,0:T(8,128)})}, replica_count=4
+
+AddComputation.24 {
+  x.25 = f32[] parameter(0)
+  y.26 = f32[] parameter(1)
+  ROOT add.27 = f32[] add(x.25, y.26)
+}
+
+ENTRY SyncTensorsGraph.32 {
+  p3.6 = f32[8,128,4096]{2,1,0} parameter(3)
+  reshape.12 = f32[1024,4096]{1,0} reshape(p3.6)
+  p4.10 = f32[3584,4096]{1,0} parameter(4)
+  transpose.11 = f32[4096,3584]{0,1} transpose(p4.10), dimensions={1,0}
+  dot.13 = f32[1024,3584]{1,0} dot(reshape.12, transpose.11), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.14 = f32[8,128,3584]{2,1,0} reshape(dot.13)
+  reshape.7 = f32[1024,4096]{1,0} reshape(p3.6)
+  p2.4 = f32[3584,4096]{1,0} parameter(2)
+  transpose.5 = f32[4096,3584]{0,1} transpose(p2.4), dimensions={1,0}
+  dot.8 = f32[1024,3584]{1,0} dot(reshape.7, transpose.5), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.9 = f32[8,128,3584]{2,1,0} reshape(dot.8)
+  multiply.15 = f32[8,128,3584]{2,1,0} multiply(reshape.14, reshape.9)
+  logistic.16 = f32[8,128,3584]{2,1,0} logistic(multiply.15)
+  multiply.17 = f32[8,128,3584]{2,1,0} multiply(multiply.15, logistic.16)
+  reshape.18 = f32[1024,3584]{1,0} reshape(multiply.17)
+  p1.2 = f32[4096,3584]{1,0} parameter(1)
+  transpose.3 = f32[3584,4096]{0,1} transpose(p1.2), dimensions={1,0}
+  dot.19 = f32[1024,4096]{1,0} dot(reshape.18, transpose.3), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.20 = f32[8,128,4096]{2,1,0} reshape(dot.19)
+  p0.1 = f32[] parameter(0)
+  tuple.21 = (f32[8,128,4096]{2,1,0}, f32[]) tuple(reshape.20, p0.1)
+  get-tuple-element.22 = f32[8,128,4096]{2,1,0} get-tuple-element(tuple.21), index=0
+  get-tuple-element.23 = f32[] get-tuple-element(tuple.21), index=1
+  all-reduce.28 = (f32[8,128,4096]{2,1,0}, f32[]) all-reduce(get-tuple-element.22, get-tuple-element.23), replica_groups={}, constrain_layout=true, to_apply=AddComputation.24
+  get-tuple-element.30 = f32[] get-tuple-element(all-reduce.28), index=1
+  get-tuple-element.29 = f32[8,128,4096]{2,1,0} get-tuple-element(all-reduce.28), index=0
+  ROOT tuple.31 = (f32[8,128,4096]{2,1,0}) tuple(get-tuple-element.29)
+} // SyncTensorsGraph.32
+
