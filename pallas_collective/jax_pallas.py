@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from jax.experimental import pallas as pl
 from jax.experimental import shard_map
 from jax.experimental.pallas import tpu as pltpu
+import functools
 
 P = jax.sharding.PartitionSpec
 
@@ -22,15 +23,17 @@ input_arr = jax.device_put(input_arr, sharding)
 
 
 def right_permute_kernel(input_ref, output_ref, send_sem, recv_sem):
-  my_id = jax.lax.axis_index('x')
-  right_neighbor = jax.lax.rem(my_id + 1, num_devices)
+#   my_id = jax.lax.axis_index('x')
+#   my_id = 0
+#   right_neighbor = jax.lax.rem(my_id + 1, num_devices)
+  right_neighbor = 1
   remote_copy_op = pltpu.make_async_remote_copy(
       src_ref=input_ref,
       dst_ref=output_ref,
       send_sem=send_sem,
       recv_sem=recv_sem,
-      device_id=(right_neighbor,),
-      device_id_type=pltpu.DeviceIdType.MESH,
+      device_id=right_neighbor,
+      device_id_type=pltpu.DeviceIdType.LOGICAL,
   )
   remote_copy_op.start()
   remote_copy_op.wait()
@@ -49,21 +52,48 @@ grid_spec = pltpu.PrefetchScalarGridSpec(
         [pltpu.SemaphoreType.DMA] * 2
     ),
 )
+
 right_permute = pl.pallas_call(
     right_permute_kernel,
     out_shape=out_shape,
     grid_spec=grid_spec,
 )
+
+my_id = 0
+right_neighbor = (my_id + 1) % num_devices
+def right_permute_wrapper(x, right_neighbor):
+    return pl.pallas_call(
+        functools.partial(right_permute_kernel, right_neighbor),
+        out_shape=out_shape,
+        grid_spec=grid_spec,
+    )(x)
+
 # Wrap the kernel within a shard_map to call.
-pallas_result = jax.jit(
-    shard_map.shard_map(
-        right_permute,
-        mesh=mesh,
-        in_specs=partition,
-        out_specs=partition,
-        check_rep=False,
-    )
-)(input_arr)
+# jitted = jax.jit(
+#     shard_map.shard_map(
+#         right_permute,
+#         mesh=mesh,
+#         in_specs=partition,
+#         out_specs=partition,
+#         check_rep=False,
+#     )
+# )
+# breakpoint()
+jitted2 = jax.jit(shard_map.shard_map(
+    # functools.partial(right_permute_wrapper, right_neighbor),
+    right_permute,
+    mesh=mesh,
+    in_specs=partition,
+    out_specs=partition,
+    check_rep=False))
+# jitted2 = jax.jit(right_permute)
+ir = jitted2.lower(input_arr).compiler_ir()
+print(ir)
+breakpoint()
+
+# ir = jitted.lower(input_arr).compiler_ir()
+# print(ir)
+# pallas_result = jitted(input_arr)
 
 # Compare Pallas result to XLA shard_map result.
 perm = tuple((src, (src + 1) % num_devices) for src in range(num_devices))
