@@ -74,8 +74,8 @@ with torch.no_grad():
     mu, logvar = encoder(img_tensor)
     xm.mark_step()
     xm.wait_device_ops()
-    print(mu - torch_mu)
-    print(logvar - torch_logvar)
+    torch.allclose(mu.cpu(), torch_mu)
+    torch.allclose(logvar.cpu(), torch_logvar)
 
 os.environ['XLA_USE_LOCAL_SPMD'] = '0'
 
@@ -96,5 +96,3 @@ xs.mark_sharding(x, global_mesh, ('x', None, None))
 ffn_out = ffn(x)
 xm.mark_step()
 xm.wait_device_ops()
-print(x.shape)
-print(x)
