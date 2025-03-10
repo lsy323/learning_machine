@@ -61,18 +61,21 @@ device_ids = np.arange(device_id_start, device_id_start + num_local_devices)
 
 mesh = Mesh(device_ids, mesh_shape, ('x', 'y'))
 
-encoder = VAEEncoderFlexible().to(device)
+encoder = VAEEncoderFlexible()
 spatial_dim = 128 * (process_id + 1)
-img_tensor = torch.randn(16, 3, spatial_dim, spatial_dim).to(device)
-xs.mark_sharding(img_tensor, mesh, ('x', None, None, None))
+img_tensor = torch.randn(16, 3, spatial_dim, spatial_dim)
+torch_mu, torch_logvar = encoder(img_tensor)
 
+encode = encoder.to(device)
+img_tensor = img_tensor.to(device)
+xs.mark_sharding(img_tensor, mesh, ('x', None, None, None))
 
 with torch.no_grad():
     mu, logvar = encoder(img_tensor)
     xm.mark_step()
     xm.wait_device_ops()
-    print(mu)
-    print(logvar)
+    print(mu - torch_mu)
+    print(logvar - torch_logvar)
 
 os.environ['XLA_USE_LOCAL_SPMD'] = '0'
 
