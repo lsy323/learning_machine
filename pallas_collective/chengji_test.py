@@ -11,9 +11,12 @@ from torch import nn
 import torch_xla.debug.profiler as xp
 
 
-intermediate_size = 28672
-hidden_size = 8192
-token_size = 1024
+# intermediate_size = 28672
+# hidden_size = 8192
+# token_size = 1024
+intermediate_size = 16
+hidden_size = 8
+token_size = 8
 
 
 class FFN(nn.Module):
@@ -27,10 +30,12 @@ class FFN(nn.Module):
     self.groups = [[i for i in range(world_size)]]
 
   def forward(self, x):
-    x = xm.all_gather(x, dim=0, groups=self.groups, pin_layout=False)
+    # x = xm.all_gather(x, dim=0, groups=self.groups, pin_layout=False)
     x = self.relu(self.fc1(x))
     x = self.fc2(x)
-    x = xm.reduce_scatter(xm.REDUCE_SUM, x, scale=1.0, scatter_dim=0, shard_count=self.world_size, groups=self.groups, pin_layout=False)
+    # x = xm.all_reduce(xm.REDUCE_SUM, x, scale=1.0, groups=self.groups, pin_layout=False)
+    x = xm.all_reduce(xm.REDUCE_SUM, x)
+    # x = xm.reduce_scatter(xm.REDUCE_SUM, x, scale=1.0, scatter_dim=0, shard_count=self.world_size, groups=self.groups, pin_layout=False)
     return x
 
 
@@ -50,8 +55,9 @@ def load_state_dict_shard(model, state_dict, index, world_size):
   fc1_full = state_dict['fc1.weight']
   fc2_full = state_dict['fc2.weight']
   
-  per_chip_col_size = hidden_size // world_size
-  per_chip_row_size = hidden_size // world_size
+  per_chip_col_size = intermediate_size // world_size
+  per_chip_row_size = intermediate_size // world_size
+  print(f"per_chip_row_size: {per_chip_row_size}")
 
   col_parallel_start_idx = index * per_chip_col_size
   col_parallel_end_idx = col_parallel_start_idx + per_chip_col_size
@@ -61,6 +67,7 @@ def load_state_dict_shard(model, state_dict, index, world_size):
       col_parallel_start_idx:col_parallel_end_idx, :]
   model.fc2.weight.data = fc2_full[:,
                                   row_parallel_start_idx:row_parallel_end_idx]
+  return model
 
 
 def load_input(input_full, index, world_size):
@@ -70,6 +77,12 @@ def load_input(input_full, index, world_size):
   idx_end = idx_start + local_seq_len
   return input_full[idx_start:idx_end]
 
+
+def calc_torch_cpu(input, full_w1, full_w2):
+  res = input @ full_w1.t()
+  res = torch.nn.functional.relu(res)
+  res = res @ full_w2.t()
+  return res
 
 def _mp_fn(index):
   device = xm.xla_device()
@@ -91,10 +104,13 @@ def _mp_fn(index):
 
   # with torch.device(device):
   model = FFN(world_size, hidden_size, intermediate_size)
-  load_state_dict_shard(model, torch.load(state_dict_path), index, world_size)
+  model = load_state_dict_shard(model, torch.load(state_dict_path), index, world_size)
+  # print(f"fc1 index: {index} {model.fc1.weight}")
+  # print(f"fc2 index: {index} {model.fc2.weight}")
   model = model.to('xla')
   
-  input = load_input(torch.load(input_path), index, world_size)
+  # input = load_input(torch.load(input_path), index, world_size)
+  input = torch.load(input_path)
   input = input.to('xla')
   # input = torch.randn((token_size // world_size, hidden_size), dtype=torch.bfloat16)
   # xm.mark_step()
@@ -102,14 +118,27 @@ def _mp_fn(index):
 
   with torch.no_grad():
     collective_matmul_output = model(input)
+    xm.mark_step()
+    xm.wait_device_ops()
   
   collective_matmul_output = collective_matmul_output.cpu()
   expected_xla_out = torch.load(xla_out_path)
   expected_xla_local_shard = load_input(expected_xla_out, index, world_size)
   print(f"expected_xla_out shape: {expected_xla_local_shard.shape}")
   print(f"collective_matmul_output shape: {collective_matmul_output.shape}")
-  print(expected_xla_local_shard - collective_matmul_output)
+  # print(expected_xla_local_shard - collective_matmul_output)
+  # print(torch.load(input_path) / collective_matmul_output)
+  # print(input.cpu() / collective_matmul_output)
+  # print(expected_xla_out - collective_matmul_output)
+  # print(f"shard {index} {collective_matmul_output[0][0]}")
+  # print(f"expected_xla_out {expected_xla_out[0][0]}")
 
+  # cpu_ref = calc_torch_cpu(torch.load(input_path), model.fc1.weight.data.cpu(), 
+  #                          model.fc2.weight.data.cpu())
+  sd = torch.load(state_dict_path)
+  cpu_ref = calc_torch_cpu(torch.load(input_path), sd['fc1.weight'], 
+                           sd['fc2.weight'])
+  print(collective_matmul_output - cpu_ref)
 
 if __name__ == '__main__':
   torch_xla.launch(_mp_fn, args=())
