@@ -13,7 +13,7 @@ set -eo
 ./buildpush.sh
 
 # You can override these by setting corresponding environment variables.
-: "${CLUSTER_NAME:=xpk-test-vllm-v6e-4-new}"
+: "${CLUSTER_NAME:=xpk-test-vllm-3-v6e-4}"
 # : "${CLUSTER_NAME:=mlperf-v5p-128}"
 # : "${CLUSTER_NAME:=lizhiyu-moe-v5p-512}"
 : "${DOCKER_URL:=gcr.io/cloud-ml-benchmarking/vllm_lsiyuan:latest}"
@@ -27,9 +27,9 @@ set -eo
 : "${PROJECT_ID:=cloud-ml-benchmarking}"
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
-COMMAND="python test.py"
+COMMAND="bash run.sh" #python test.py"
 
-/home/lsiyuan/miniconda3/envs/torch310/bin/xpk workload create \
+python /home/manfei/xpk/xpk.py workload create \
     --cluster ${CLUSTER_NAME} \
     --docker-image ${DOCKER_URL} \
     --workload "${USER}-$TPU_TYPE-${DATETIMESTR}" \
