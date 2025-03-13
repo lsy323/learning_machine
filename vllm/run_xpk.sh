@@ -16,7 +16,7 @@ set -eo
 : "${CLUSTER_NAME:=xpk-test-vllm-v6e-4-new}"
 # : "${CLUSTER_NAME:=mlperf-v5p-128}"
 # : "${CLUSTER_NAME:=lizhiyu-moe-v5p-512}"
-: "${DOCKER_URL:=gcr.io/tpu-pytorch/vllm_lsiyuan:latest}"
+: "${DOCKER_URL:=gcr.io/cloud-ml-benchmarking/vllm_lsiyuan:latest}"
 : "${NUM_SLICES:=1}"
 # : "${TPU_TYPE:=v5p-128}"
 : "${TPU_TYPE:=v6e-4}"
