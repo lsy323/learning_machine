@@ -28,9 +28,7 @@ set -eo
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
 # Notice: please update HF_TOKEN=xxx with your own HF_TOKEN
-COMMAND="export HF_TOKEN=xxx && \
-VLLM_USE_V1=1 python -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-8B --disable-log-requests --max-num-seq=320 --gpu-memory-utilization=0.95 --tensor-parallel-size=4 --max-model-len=8192 --port 8000
-"
+COMMAND="export HF_TOKEN=xxx && VLLM_USE_V1=1 python -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-8B --disable-log-requests --max-num-seq=320 --gpu-memory-utilization=0.95 --tensor-parallel-size=4 --max-model-len=8192 --port 8000"
 
 python /home/manfei/xpk/xpk.py workload create \
     --cluster ${CLUSTER_NAME} \
