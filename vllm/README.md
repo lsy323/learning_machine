@@ -18,6 +18,18 @@ python -c "import torch; import torch_xla; import torch_xla.runtime as xr; print
 python -c "import torch; import torch_xla; import torch_xla.runtime as xr; print(torch_xla._XLAC._xla_get_devices())"
 python examples/offline_inference/tpu.py # failed with error: `RuntimeError: Bad StatusOr access: UNKNOWN: TPU initialization failed: `
 vllm serve meta-llama/Meta-Llama-3.1-8B --swap-space 8 --disable-log-requests --tensor_parallel_size=4 --max-model-len=2048 --num-scheduler-steps=1 --port 6089 # hang
+python inference-benchmark/benchmark_serving.py \
+        --host localhost \
+        --port 6089 \
+        --num-prompts 1000 \
+        --max-input-length 1024 \
+        --max-output-length 1024 \
+        --dataset ShareGPT_V3_unfiltered_cleaned_split.json \
+        --save-json-results \
+        --model meta-llama/Meta-Llama-3.1-8B \
+        --tokenizer meta-llama/Meta-Llama-3.1-8B \
+        --request-rate 1 \
+        --stream-request
 
 # JAX matched function
 export JAX_PLATFORMS='tpu'
