@@ -1,5 +1,5 @@
 # Run locally in your local TPUVM with vLLM V0:
-
+Note: please modify `HF_TOKEN` with your HF_TOKEN
 ```
 #/bin/bash
 pip uninstall -y torch torchvision torch_xla jax jaxlib libtpu
@@ -17,7 +17,21 @@ export PJRT_DEVICE=TPU
 python -c "import torch; import torch_xla; import torch_xla.runtime as xr; print(xr.device_type())"
 python -c "import torch; import torch_xla; import torch_xla.runtime as xr; print(torch_xla._XLAC._xla_get_devices())"
 python examples/offline_inference/tpu.py # failed with error: `RuntimeError: Bad StatusOr access: UNKNOWN: TPU initialization failed: `
+
+# setup vLLM server
 vllm serve meta-llama/Meta-Llama-3.1-8B --swap-space 8 --disable-log-requests --tensor_parallel_size=4 --max-model-len=2048 --num-scheduler-steps=1 --port 6089 # hang
+
+# inference benchmark script
+wget --no-verbose https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
+pip install --upgrade google-cloud-storage
+rm -rf inference-benchmark
+git clone https://github.com/AI-Hypercomputer/inference-benchmark
+echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - 
+apt-get update
+apt-get install -y google-cloud-sdk
+apt-get -y install jq
+export HF_TOKEN=xxx
 python inference-benchmark/benchmark_serving.py \
         --host localhost \
         --port 6089 \
