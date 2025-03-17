@@ -1,4 +1,4 @@
-# Run locally:
+# Run locally in your local TPUVM with vLLM V0:
 
 ```
 #/bin/bash
@@ -24,16 +24,35 @@ export JAX_PLATFORMS='tpu'
 python -c "import jax; print(jax.devices()); print(jax.devices()[0]); print(jax.devices()[0].memory_stats)"
 ```
 
-# Run on xpk
+# Run locally in your local TPUVM with vLLM V1 according to GKE used commands:
+Note: please modify `HF_TOKEN` with your HF_TOKEN
+```
+sudo docker run --privileged  --shm-size 16G --net host --name testvllmar141557pm -it -d docker.io/vllm/vllm-tpu:d374f04a337dbd4aab31484b6fa2d4a5f20c2116 /bin/bash
 
-NOTE: edit the file for region / project / cluster id
+export HF_TOKEN=xxx
+
+VLLM_USE_V1=1 python -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-8B --disable-log-requests --max-num-seq=320 --gpu-memory-utilization=0.95 --tensor-parallel-size=4 --max-model-len=8192 --port 8000
+```
+and create a new termial, SSH-ed to the existing lcoal TPUVM, and attach to the above created docker container:
+```
+sudo docker run --privileged  --shm-size 16G --net host --name testvllmar141557pm -it -d docker.io/vllm/vllm-tpu:d374f04a337dbd4aab31484b6fa2d4a5f20c2116 /bin/bash
+
+sudo docker exec --privileged -it testvllmar141557pm /bin/bash
+
+python inference-benchmark/benchmark_serving.py --save-json-results --port=6089 --dataset=ShareGPT_V3_unfiltered_cleaned_split.json --tokenizer=meta-llama/Meta-Llama-3-8B --request-rate=1 --backend=vllm --num-prompts=300 --max-input-length=1024 --max-output-length=1024 --file-prefix=benchmark --models=meta-llama/Meta-Llama-3-8B '--output-bucket=gs://manfeipublic'
+```
+
+# Run on XPK
+
+NOTE: Modify HF_TOKEN to your HF_TOKEN in `run_xpk_with_vLLM_V0.sh` or `run_xpk_with_vLLM_V1.sh`
 then
 
+### run XPK workload with vLLM V0:
 ```
-./run_xpk.sh
+bash run_xpk_with_vLLM_V0.sh
 ```
 
-It should print out a link to see the logs for workload
-
-
-Pick the datetime that is most recent
+### run XPK workload with vLLM V1:
+```
+bash run_xpk_with_vLLM_V1.sh
+```
