@@ -1,6 +1,8 @@
 # Run locally in your local TPUVM with vLLM V0:
 Note: please modify `HF_TOKEN` with your HF_TOKEN
 ```
+sudo docker run --privileged --net host --shm-size=16G --name vllmv0test -it us-central1-docker.pkg.dev/tpu-pytorch-releases/docker/xla:nightly_3.10_tpuvm /bin/bash
+
 #/bin/bash
 pip uninstall -y torch torchvision torch_xla jax jaxlib libtpu
 git clone https://github.com/lsy323/vllm.git
@@ -59,7 +61,7 @@ export HF_TOKEN=xxx
 
 VLLM_USE_V1=1 python -m vllm.entrypoints.openai.api_server --model meta-llama/Meta-Llama-3-8B --disable-log-requests --max-num-seq=320 --gpu-memory-utilization=0.95 --tensor-parallel-size=4 --max-model-len=8192 --port 8000
 ```
-and create a new termial, SSH-ed to the existing lcoal TPUVM, and attach to the above created docker container:
+and create a new termial(with the same docker container), SSH-ed to the existing lcoal TPUVM, and attach to the above created docker container:
 ```
 sudo docker run --privileged  --shm-size 16G --net host --name testvllmar141557pm -it -d docker.io/vllm/vllm-tpu:d374f04a337dbd4aab31484b6fa2d4a5f20c2116 /bin/bash
 
