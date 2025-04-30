@@ -4,7 +4,7 @@ FROM python:3.10-slim-bullseye
 
 # Install system dependencies
 RUN apt-get update && apt-get upgrade -y
-RUN apt-get update && apt-get install -y curl gnupg
+RUN apt-get update && apt-get install -y curl gnupg libopenblas-base libgomp1
 
 # Add the Google Cloud SDK package repository
 RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
@@ -24,15 +24,19 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python
 # RUN pip install -U --pre jax jaxlib libtpu requests -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 # RUN pip install flax optax
 
+# RUN pip install torch~=2.6.0 'torch_xla[tpu]~=2.6.0' -f https://storage.googleapis.com/libtpu-releases/index.html -f https://storage.googleapis.com/libtpu-wheels/index.html
+
+
 RUN mkdir /workdir
 WORKDIR /workdir
 COPY ./*.py ./
 COPY ./run.sh ./
+COPY ./run_vLLM_V0.sh ./
 COPY ./entrypoint.sh ./
 # ENV LIBTPU_INIT_ARGS "--xla_tpu_scoped_vmem_limit_kib=98304 --xla_enable_async_all_gather=true --xla_tpu_overlap_compute_collective_tc=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true"
 # ENV LIBTPU_INIT_ARGS "--xla_tpu_enable_flash_attention=false --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_overlap_compute_collective_tc=true --xla_enable_async_all_gather=true --xla_tpu_scoped_vmem_limit_kib=81920"
 # ENV LIBTPU_INIT_ARGS "--xla_tpu_enable_flash_attention=false  --xla_tpu_enable_async_collective_fusion=true  --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true  --xla_tpu_enable_async_collective_fusion_multiple_steps=true  --xla_tpu_overlap_compute_collective_tc=true  --xla_enable_async_all_gather=true  --xla_tpu_scoped_vmem_limit_kib=98304  --xla_latency_hiding_scheduler_rerun=1  --xla_tpu_prefer_async_allgather_to_allreduce=true"
-ENTRYPOINT ["bash", "entrypoint.sh"]
+# ENTRYPOINT ["bash", "entrypoint.sh"]
 
 
 
