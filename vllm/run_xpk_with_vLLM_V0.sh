@@ -27,7 +27,7 @@ set -eo
 : "${PROJECT_ID:=cloud-ml-benchmarking}"
 
 DATETIMESTR=$(date +%Y%m%d-%H%M%S)
-COMMAND="bash run.sh" #python test.py"
+COMMAND="bash run_vLLM_V0.sh" #python test.py"
 
 python /home/manfei/xpk/xpk.py workload create \
     --cluster ${CLUSTER_NAME} \
